@@ -1,0 +1,26 @@
+services:
+  postgis:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
+    container_name: postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gis
+      POSTGRES_USER: gis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # keeps locale/collation predictable
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # optional: any .sql/.sh here runs on first init
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gis -d gis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: 256mb
+
+volumes:
+  pgdata:

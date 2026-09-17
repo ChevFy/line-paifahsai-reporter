@@ -1,10 +1,11 @@
 [project]
-name = "line-paifahsai"
+name = "line-paifahsai-backend"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]",
+    "line-bot-sdk>=3.25.0",
     "pyngrok>=8.1.2",
 ]

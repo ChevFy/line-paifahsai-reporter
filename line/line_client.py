@@ -1,26 +1,24 @@
-from linebot.v3.messaging import AsyncApiClient, AsyncMessagingApi, Configuration
+from linebot.v3.messaging import Configuration
 
 from config.config import settings
+from line.line_service import LineService
 
 configuration = Configuration(access_token=settings.LINE_CHANNEL_ACCESS_TOKEN)
 
-_api_client: AsyncApiClient | None = None
-_messaging_api: AsyncMessagingApi | None = None
+_line_service: LineService | None = None
 
 
-def get_line_bot_api() -> AsyncMessagingApi:
-    global _api_client, _messaging_api
+def get_line_service() -> LineService:
+    global _line_service
 
-    if _messaging_api is None:
-        _api_client = AsyncApiClient(configuration)
-        _messaging_api = AsyncMessagingApi(_api_client)
-    return _messaging_api
+    if _line_service is None:
+        _line_service = LineService(configuration)
+    return _line_service
 
 
 async def close_line_bot_api() -> None:
-    global _api_client, _messaging_api
+    global _line_service
 
-    if _api_client is not None:
-        await _api_client.close()
-        _api_client = None
-        _messaging_api = None
+    if _line_service is not None:
+        await _line_service.close()
+        _line_service = None

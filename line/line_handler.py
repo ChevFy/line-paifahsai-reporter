@@ -1,5 +1,6 @@
 import logging
 
+
 from linebot.v3.messaging import ReplyMessageRequest, TextMessage
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 

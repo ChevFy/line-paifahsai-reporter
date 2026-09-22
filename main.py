@@ -22,6 +22,9 @@ def main():
     if settings.USE_NGROK:
         start_ngrok()
 
+    #setting check
+    
+
     uvicorn.run(
         "api.utils_api:app",
         host=settings.HOST,

@@ -16,6 +16,19 @@ class Settings(BaseSettings):
     HOST: str = "127.0.0.1"
     PORT: int = 8000
 
+    POSTGRES_USER: str = Field(min_length=1)
+    POSTGRES_PASSWORD: str = Field(min_length=1)
+    POSTGRES_HOST: str = Field(min_length=1)
+    POSTGRES_PORT: int
+    POSTGRES_DB: str = Field(min_length=1)
+
+    @property
+    def DATABASE_URL(self) -> str:
+        return (
+            f"postgresql+psycopg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
+
     @model_validator(mode="after")
     def check_ngrok(self) -> Self:
         if self.USE_NGROK and not self.NGROK_AUTH_TOKEN:

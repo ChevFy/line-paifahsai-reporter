@@ -3,8 +3,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from core.db import close_db
+from core.log_config import setup_logging
 from line.line_client import close_line_bot_api
 from line.line_webhook import router as line_router
+
+setup_logging()
 
 
 @asynccontextmanager

@@ -42,24 +42,33 @@ def upgrade() -> None:
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("payload", JSONB(), server_default=EMPTY_JSONB, nullable=False),
         sa.Column("dedup_key", sa.String(200), nullable=True),
+        sa.Column("occurrence_count", sa.Integer(), server_default="1", nullable=False),
         sa.Column("created_at", TIMESTAMPTZ, server_default=NOW, nullable=False),
+        sa.Column("last_occurred_at", TIMESTAMPTZ, server_default=NOW, nullable=False),
         sa.Column("acknowledged_at", TIMESTAMPTZ, nullable=True),
         sa.Column("acknowledged_by", sa.String(100), nullable=True),
         sa.CheckConstraint(
             "(acknowledged_at IS NULL) = (acknowledged_by IS NULL)",
             name=op.f("ck_admin_alerts_acknowledged_pair"),
         ),
+        sa.CheckConstraint(
+            "occurrence_count > 0",
+            name=op.f("ck_admin_alerts_occurrence_count_positive"),
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_admin_alerts")),
         sa.UniqueConstraint("dedup_key", name=op.f("uq_admin_alerts_dedup_key")),
     )
     op.create_index(
-        "ix_admin_alerts_unacknowledged_created_at",
+        "ix_admin_alerts_unacknowledged_last_occurred_at",
         "admin_alerts",
-        ["created_at"],
+        ["last_occurred_at"],
         postgresql_where=sa.text("acknowledged_at IS NULL"),
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_admin_alerts_unacknowledged_created_at", table_name="admin_alerts")
+    op.drop_index(
+        "ix_admin_alerts_unacknowledged_last_occurred_at",
+        table_name="admin_alerts",
+    )
     op.drop_table("admin_alerts")

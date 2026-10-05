@@ -27,18 +27,21 @@ class AdminAlert(Base):
         JSONB, server_default=sa.text("'{}'::jsonb")
     )
     dedup_key: Mapped[str | None] = mapped_column(sa.String(200), unique=True)
+    occurrence_count: Mapped[int] = mapped_column(server_default="1")
     created_at: Mapped[datetime] = mapped_column(server_default=NOW)
+    last_occurred_at: Mapped[datetime] = mapped_column(server_default=NOW)
     acknowledged_at: Mapped[datetime | None]
     acknowledged_by: Mapped[str | None] = mapped_column(sa.String(100))
 
     __table_args__ = (
         sa.Index(
-            "ix_admin_alerts_unacknowledged_created_at",
-            "created_at",
+            "ix_admin_alerts_unacknowledged_last_occurred_at",
+            "last_occurred_at",
             postgresql_where=sa.text("acknowledged_at IS NULL"),
         ),
         sa.CheckConstraint(
             "(acknowledged_at IS NULL) = (acknowledged_by IS NULL)",
             name="acknowledged_pair",
         ),
+        sa.CheckConstraint("occurrence_count > 0", name="occurrence_count_positive"),
     )

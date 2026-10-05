@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,33 +17,34 @@ async def record_admin_alert(
     message: str,
     payload: dict[str, Any] | None = None,
     dedup_key: str | None = None,
-) -> int | None:
-    statement = (
-        insert(AdminAlert)
-        .values(
-            alert_type=alert_type,
-            severity=severity,
-            message=message,
-            payload=payload or {},
-            dedup_key=dedup_key,
-        )
-        .on_conflict_do_nothing(index_elements=[AdminAlert.dedup_key])
-        .returning(AdminAlert.id)
+) -> int:
+    statement = insert(AdminAlert).values(
+        alert_type=alert_type,
+        severity=severity,
+        message=message,
+        payload=payload or {},
+        dedup_key=dedup_key,
     )
-    alert_id = (await session.execute(statement)).scalar_one_or_none()
-    await session.commit()
+    statement = statement.on_conflict_do_update(
+        index_elements=[AdminAlert.dedup_key],
+        set_={
+            "severity": statement.excluded.severity,
+            "message": statement.excluded.message,
+            "payload": statement.excluded.payload,
+            "occurrence_count": AdminAlert.occurrence_count + 1,
+            "last_occurred_at": func.now(),
+            "acknowledged_at": None,
+            "acknowledged_by": None,
+        },
+    ).returning(AdminAlert.id, AdminAlert.occurrence_count)
 
-    if alert_id is None:
-        logger.info(
-            "admin alert already recorded: alert_type=%s dedup_key=%s",
-            alert_type,
-            dedup_key,
-        )
-    else:
-        logger.info(
-            "admin alert recorded: id=%s alert_type=%s severity=%s",
-            alert_id,
-            alert_type,
-            severity,
-        )
+    alert_id, occurrence_count = (await session.execute(statement)).one()
+
+    logger.info(
+        "admin alert recorded: id=%s alert_type=%s severity=%s occurrence_count=%s",
+        alert_id,
+        alert_type,
+        severity,
+        occurrence_count,
+    )
     return alert_id

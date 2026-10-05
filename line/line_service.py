@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
 
@@ -38,7 +39,9 @@ class LineService:
         self.api = AsyncMessagingApi(self.api_client)
         self.blob_api = AsyncMessagingApiBlob(self.api_client)
 
-    async def retry(self, operation: Callable[..., Awaitable[T]], *args, **kwargs) -> T:
+    async def retry(
+        self, operation: Callable[..., Awaitable[T]], *args, **kwargs
+    ) -> T | None:
         operation_name = getattr(operation, "__name__", repr(operation))
 
         for attempt in range(self.max_retries):
@@ -94,8 +97,11 @@ class LineService:
         retry_key: str | None = None,
     ):
         request = PushMessageRequest(to=to, messages=self._as_message_list(messages))
-        kwargs = {"x_line_retry_key": retry_key} if retry_key else {}
-        return await self.retry(self.api.push_message, request, **kwargs)
+        return await self.retry(
+            self.api.push_message,
+            request,
+            x_line_retry_key=retry_key or str(uuid.uuid4()),
+        )
 
     async def multicast(
         self,
@@ -107,8 +113,11 @@ class LineService:
             to=list(to),
             messages=self._as_message_list(messages),
         )
-        kwargs = {"x_line_retry_key": retry_key} if retry_key else {}
-        return await self.retry(self.api.multicast, request, **kwargs)
+        return await self.retry(
+            self.api.multicast,
+            request,
+            x_line_retry_key=retry_key or str(uuid.uuid4()),
+        )
 
     async def get_profile(self, user_id: str):
         return await self.retry(self.api.get_profile, user_id)

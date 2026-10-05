@@ -1,5 +1,4 @@
 import logging
-import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -56,9 +55,7 @@ async def alert_admins_event_failed(event: Event, error: Exception) -> None:
     )
 
     await record_event_failed_alert(event, message, payload)
-
-    if settings.ADMIN_LINE_USER_IDS:
-        await send_debug_alert_to_line(event, message)
+    await send_debug_alert_to_line(event, message)
 
 
 async def record_event_failed_alert(
@@ -67,7 +64,7 @@ async def record_event_failed_alert(
     payload: dict[str, Any],
 ) -> None:
     try:
-        async with SessionLocal() as session:
+        async with SessionLocal() as session, session.begin():
             await record_admin_alert(
                 session,
                 alert_type=EVENT_FAILED_ALERT_TYPE,
@@ -85,12 +82,12 @@ async def record_event_failed_alert(
 
 
 async def send_debug_alert_to_line(event: Event, message: str) -> None:
+    admin_user_ids = settings.ADMIN_LINE_USER_IDS
+    if not admin_user_ids:
+        return
+
     try:
-        await get_line_service().multicast(
-            settings.ADMIN_LINE_USER_IDS,
-            TextMessage(text=message),
-            retry_key=str(uuid.uuid4()),
-        )
+        await get_line_service().multicast(admin_user_ids, TextMessage(text=message))
     except Exception:
         logger.error(
             "failed to send debug admin alert to LINE: webhook_event_id=%s",

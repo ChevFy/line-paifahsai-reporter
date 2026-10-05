@@ -1,3 +1,4 @@
+from models.admin_alert import AdminAlert, AlertSeverity
 from models.assignment import Assignment, AssignmentStatus
 from models.base import Base
 from models.daily_report import DailyReport
@@ -11,6 +12,8 @@ from models.volunteer import Volunteer, VolunteerStatus
 
 __all__ = [
     "ActorType",
+    "AdminAlert",
+    "AlertSeverity",
     "Assignment",
     "AssignmentStatus",
     "Base",

@@ -11,5 +11,5 @@ dependencies = [
     "line-bot-sdk>=3.25.0",
     "psycopg[binary]>=3.3.6",
     "pyngrok>=8.1.2",
-    "sqlalchemy>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
 ]

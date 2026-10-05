@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     LINE_CHANNEL_SECRET: str = Field(min_length=1)
     LINE_CHANNEL_ACCESS_TOKEN: str = Field(min_length=1)
+    ADMIN_LINE_USER_IDS: list[str] | None = None
 
     NGROK_AUTH_TOKEN: str = ""
     USE_NGROK: bool = False

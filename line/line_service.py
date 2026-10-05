@@ -45,6 +45,12 @@ class LineService:
             try:
                 return await operation(*args, **kwargs)
             except Exception as error:
+                if attempt > 0 and "x_line_retry_key" in kwargs and self._is_conflict(error):
+                    logger.info(
+                        "LINE API request already accepted on earlier attempt: %s",
+                        operation_name,
+                    )
+                    return None
                 if not self._is_retryable(error) or attempt == self.max_retries - 1:
                     logger.exception("LINE API request failed: %s", operation_name)
                     raise
@@ -60,6 +66,10 @@ class LineService:
                 await asyncio.sleep(delay)
 
         raise RuntimeError("retry loop exited unexpectedly")
+
+    @staticmethod
+    def _is_conflict(error: Exception) -> bool:
+        return isinstance(error, ApiException) and error.status == 409
 
     @staticmethod
     def _is_retryable(error: Exception) -> bool:

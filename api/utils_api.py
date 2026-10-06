@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
+from api.reports import router as reports_router
+from api.reports import validation_error_handler
 from core.db import close_db
 from core.log_config import setup_logging
 from line.line_client import close_line_bot_api
@@ -20,6 +23,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(line_router)
+app.include_router(reports_router)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 
 @app.get("/healthz")

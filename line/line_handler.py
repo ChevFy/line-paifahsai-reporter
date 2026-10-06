@@ -1,15 +1,13 @@
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any
 
 from linebot.v3.messaging import Message, TextMessage
 from linebot.v3.webhooks import Event, MessageEvent, TextMessageContent
 
 from config.config import settings
-from core.db import SessionLocal
+from core.alerts import record_admin_alert_safely
 from line.line_client import get_line_service
 from models import AlertSeverity
-from services.admin_alerts import record_admin_alert
 
 logger = logging.getLogger(__name__)
 
@@ -54,31 +52,14 @@ async def alert_admins_event_failed(event: Event, error: Exception) -> None:
         f"error: {error_text}"
     )
 
-    await record_event_failed_alert(event, message, payload)
+    await record_admin_alert_safely(
+        alert_type=EVENT_FAILED_ALERT_TYPE,
+        severity=AlertSeverity.CRITICAL,
+        message=message,
+        payload=payload,
+        dedup_key=f"{EVENT_FAILED_ALERT_TYPE}:{event.webhook_event_id}",
+    )
     await send_debug_alert_to_line(event, message)
-
-
-async def record_event_failed_alert(
-    event: Event,
-    message: str,
-    payload: dict[str, Any],
-) -> None:
-    try:
-        async with SessionLocal() as session, session.begin():
-            await record_admin_alert(
-                session,
-                alert_type=EVENT_FAILED_ALERT_TYPE,
-                severity=AlertSeverity.CRITICAL,
-                message=message,
-                payload=payload,
-                dedup_key=f"{EVENT_FAILED_ALERT_TYPE}:{event.webhook_event_id}",
-            )
-    except Exception:
-        logger.critical(
-            "failed to record admin alert: webhook_event_id=%s",
-            event.webhook_event_id,
-            exc_info=True,
-        )
 
 
 async def send_debug_alert_to_line(event: Event, message: str) -> None:

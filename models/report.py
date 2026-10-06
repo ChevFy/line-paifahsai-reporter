@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from uuid import UUID
 
 import sqlalchemy as sa
 from geoalchemy2 import Geography, WKBElement
@@ -23,4 +24,7 @@ class Report(Base):
     description: Mapped[str | None] = mapped_column(sa.Text)
     image_path: Mapped[str | None] = mapped_column(sa.String(500))
     ops_date: Mapped[date] = mapped_column(index=True)
+    client_request_id: Mapped[UUID] = mapped_column(sa.Uuid)
     created_at: Mapped[datetime] = mapped_column(server_default=NOW)
+
+    __table_args__ = (sa.UniqueConstraint("reporter_user_id", "client_request_id"),)

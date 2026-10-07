@@ -18,7 +18,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("reports", sa.Column("client_request_id", sa.Uuid(), nullable=False))
+    op.add_column("reports", sa.Column("client_request_id", sa.Uuid(), nullable=True))
+    op.execute(
+        "UPDATE reports SET client_request_id = gen_random_uuid() "
+        "WHERE client_request_id IS NULL"
+    )
+    op.alter_column("reports", "client_request_id", nullable=False)
     op.create_unique_constraint(
         op.f("uq_reports_reporter_user_id_client_request_id"),
         "reports",

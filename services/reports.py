@@ -32,6 +32,7 @@ ACTIVE_STATUSES = (IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS)
 EVENT_INCIDENT_CREATED = "incident_created"
 EVENT_REPORT_ATTACHED = "report_attached"
 ALERT_REPORT_ON_CLOSED_INCIDENT = "report_on_recently_closed_incident"
+ALERT_INCIDENT_NEEDS_DISPATCH = "incident_needs_dispatch"
 
 
 class ReportOutcome(StrEnum):
@@ -142,6 +143,25 @@ async def submit_report(
         .where(LineUser.user_id == submission.reporter_user_id)
         .values(report_count=LineUser.report_count + 1)
     )
+
+    if outcome == ReportOutcome.NEW_INCIDENT:
+        await record_admin_alert(
+            session,
+            alert_type=ALERT_INCIDENT_NEEDS_DISPATCH,
+            severity=AlertSeverity.CRITICAL,
+            message=(
+                f"มีเหตุใหม่ incident #{incident.id} อำเภอ {submission.district_code} "
+                "ระบบยังไม่ส่งหาจิตอาสาอัตโนมัติ กรุณาประสานจิตอาสาเอง"
+            ),
+            payload={
+                "incident_id": incident.id,
+                "report_id": report.id,
+                "district_code": submission.district_code,
+                "latitude": submission.latitude,
+                "longitude": submission.longitude,
+            },
+            dedup_key=f"{ALERT_INCIDENT_NEEDS_DISPATCH}:{incident.id}",
+        )
 
     if outcome == ReportOutcome.MERGED_RECENTLY_CLOSED:
         await record_admin_alert(

@@ -1,15 +1,17 @@
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
 from core.alerts import record_admin_alert_safely
 from core.db import SessionLocal
 from line.line_id_token import (
+    IdTokenConfigError,
     IdTokenVerificationUnavailableError,
     InvalidIdTokenError,
     verify_id_token,
@@ -25,8 +27,6 @@ from services.reports import (
 )
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter()
 
 EMERGENCY_PHONE = "1362"
 EMERGENCY_NOTICE = (
@@ -46,47 +46,52 @@ OUTCOME_MESSAGES = {
 }
 ALERT_REPORT_FAILED = "report_submit_failed"
 ALERT_BLOCKED_REPORTER = "blocked_reporter_attempt"
-REPORTS_PATH = "/reports"
+ALERT_ID_TOKEN_UNAVAILABLE = "id_token_verify_unavailable"
+ALERT_ID_TOKEN_CONFIG = "id_token_config_error"
+AUTH_FAILED_MESSAGE = "ยืนยันตัวตน LINE ไม่สำเร็จ กรุณาเปิดฟอร์มจาก LINE ใหม่"
+AUTH_UNAVAILABLE_MESSAGE = "ระบบยืนยันตัวตนขัดข้องชั่วคราว กรุณาลองส่งอีกครั้ง"
+
+
+def emergency_detail(message: str) -> dict:
+    return {
+        "message": f"{message}\n{EMERGENCY_NOTICE}",
+        "emergency_phone": EMERGENCY_PHONE,
+    }
 
 
 def report_error(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={
-            "message": f"{message}\n{EMERGENCY_NOTICE}",
-            "emergency_phone": EMERGENCY_PHONE,
-        },
-    )
+    return HTTPException(status_code=status_code, detail=emergency_detail(message))
+
+
+class EmergencyNoticeRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError as error:
+                logger.warning("invalid report payload: errors=%s", error.errors())
+                detail = emergency_detail(
+                    "ข้อมูลการแจ้งเหตุไม่ถูกต้อง กรุณาตรวจสอบหมุดและอำเภอ"
+                )
+                detail["errors"] = jsonable_encoder(error.errors())
+                return JSONResponse(status_code=422, content={"detail": detail})
+
+        return handle
+
+
+router = APIRouter(route_class=EmergencyNoticeRoute)
 
 
 def parse_bearer_token(authorization: str | None) -> str:
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
-        raise report_error(401, "ยืนยันตัวตน LINE ไม่สำเร็จ กรุณาเปิดฟอร์มจาก LINE ใหม่")
+        raise report_error(401, AUTH_FAILED_MESSAGE)
     return token
 
 
-async def validation_error_handler(
-    request: Request,
-    error: RequestValidationError,
-) -> JSONResponse:
-    if request.url.path != REPORTS_PATH:
-        return await request_validation_exception_handler(request, error)
-
-    logger.warning("invalid report payload: errors=%s", error.errors())
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": {
-                "message": f"ข้อมูลการแจ้งเหตุไม่ถูกต้อง กรุณาตรวจสอบหมุดและอำเภอ\n{EMERGENCY_NOTICE}",
-                "emergency_phone": EMERGENCY_PHONE,
-                "errors": jsonable_encoder(error.errors()),
-            }
-        },
-    )
-
-
-@router.post(REPORTS_PATH, response_model=ReportResponse)
+@router.post("/reports", response_model=ReportResponse)
 async def create_report(
     body: ReportCreate,
     authorization: str | None = Header(None),
@@ -97,10 +102,33 @@ async def create_report(
         identity = await verify_id_token(id_token)
     except InvalidIdTokenError as error:
         logger.warning("invalid LIFF id token: %s", error)
-        raise report_error(401, "ยืนยันตัวตน LINE ไม่สำเร็จ กรุณาเปิดฟอร์มจาก LINE ใหม่")
+        raise report_error(401, AUTH_FAILED_MESSAGE)
+    except IdTokenConfigError as error:
+        logger.critical("LIFF id token rejected by channel config: %s", error)
+        await record_admin_alert_safely(
+            alert_type=ALERT_ID_TOKEN_CONFIG,
+            severity=AlertSeverity.CRITICAL,
+            message=(
+                "LINE ปฏิเสธ ID token เพราะ channel ไม่ตรง ผู้แจ้งทุกคนส่งเหตุไม่ได้ "
+                "ตรวจ LINE_LOGIN_CHANNEL_ID ให้ตรงกับ LINE Login channel ของ LIFF"
+            ),
+            payload={"error": str(error)},
+            dedup_key=ALERT_ID_TOKEN_CONFIG,
+        )
+        raise report_error(503, AUTH_UNAVAILABLE_MESSAGE)
     except IdTokenVerificationUnavailableError as error:
         logger.error("LIFF id token verification unavailable: %s", error)
-        raise report_error(503, "ระบบยืนยันตัวตนขัดข้องชั่วคราว กรุณาลองส่งอีกครั้ง")
+        await record_admin_alert_safely(
+            alert_type=ALERT_ID_TOKEN_UNAVAILABLE,
+            severity=AlertSeverity.CRITICAL,
+            message=(
+                "ยืนยัน ID token กับ LINE ไม่ได้ ผู้แจ้งส่งเหตุผ่านฟอร์มไม่ได้ "
+                "จนกว่า LINE จะกลับมา ผู้แจ้งอาจกำลังเห็นไฟอยู่"
+            ),
+            payload={"error": str(error)},
+            dedup_key=ALERT_ID_TOKEN_UNAVAILABLE,
+        )
+        raise report_error(503, AUTH_UNAVAILABLE_MESSAGE)
 
     submission = ReportSubmission(
         reporter_user_id=identity.user_id,

@@ -3,7 +3,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from api import reports
+from api import line_auth, reports
 from api.utils_api import app
 from line.line_id_token import (
     IdTokenConfigError,
@@ -39,6 +39,7 @@ def alerts(monkeypatch):
         recorded.append(kwargs)
 
     monkeypatch.setattr(reports, "record_admin_alert_safely", fake_alert)
+    monkeypatch.setattr(line_auth, "record_admin_alert_safely", fake_alert)
     return recorded
 
 
@@ -47,7 +48,7 @@ def verified(monkeypatch):
     async def fake_verify(id_token):
         return LineIdentity(user_id="U123", display_name="Somchai")
 
-    monkeypatch.setattr(reports, "verify_id_token", fake_verify)
+    monkeypatch.setattr(line_auth, "verify_id_token", fake_verify)
 
 
 def use_submit(monkeypatch, behavior):
@@ -87,7 +88,7 @@ def test_invalid_token_returns_401(client, monkeypatch):
     async def fake_verify(id_token):
         raise InvalidIdTokenError("bad")
 
-    monkeypatch.setattr(reports, "verify_id_token", fake_verify)
+    monkeypatch.setattr(line_auth, "verify_id_token", fake_verify)
     response = client.post("/reports", json=valid_body(), headers=AUTH)
 
     assert response.status_code == 401
@@ -134,15 +135,15 @@ def test_verification_unavailable_returns_503_and_alerts_admin(
     async def fake_verify(id_token):
         raise IdTokenVerificationUnavailableError("ConnectTimeout")
 
-    monkeypatch.setattr(reports, "verify_id_token", fake_verify)
+    monkeypatch.setattr(line_auth, "verify_id_token", fake_verify)
     response = client.post("/reports", json=valid_body(), headers=AUTH)
 
     assert response.status_code == 503
     assert_has_emergency_phone(response.json()["detail"])
     assert [alert["alert_type"] for alert in alerts] == [
-        reports.ALERT_ID_TOKEN_UNAVAILABLE
+        line_auth.ALERT_ID_TOKEN_UNAVAILABLE
     ]
-    assert alerts[0]["dedup_key"] == reports.ALERT_ID_TOKEN_UNAVAILABLE
+    assert alerts[0]["dedup_key"] == line_auth.ALERT_ID_TOKEN_UNAVAILABLE
 
 
 def test_channel_config_error_returns_503_and_alerts_admin(
@@ -151,12 +152,12 @@ def test_channel_config_error_returns_503_and_alerts_admin(
     async def fake_verify(id_token):
         raise IdTokenConfigError("Invalid IdToken Audience.")
 
-    monkeypatch.setattr(reports, "verify_id_token", fake_verify)
+    monkeypatch.setattr(line_auth, "verify_id_token", fake_verify)
     response = client.post("/reports", json=valid_body(), headers=AUTH)
 
     assert response.status_code == 503
     assert_has_emergency_phone(response.json()["detail"])
-    assert [alert["alert_type"] for alert in alerts] == [reports.ALERT_ID_TOKEN_CONFIG]
+    assert [alert["alert_type"] for alert in alerts] == [line_auth.ALERT_ID_TOKEN_CONFIG]
 
 
 def test_malformed_json_returns_422_with_emergency_phone(client):

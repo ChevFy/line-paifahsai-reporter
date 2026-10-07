@@ -15,6 +15,9 @@ class IncidentStatus(StrEnum):
     FALSE_ALARM = "false_alarm"
 
 
+ACTIVE_INCIDENT_STATUSES = (IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS)
+
+
 class Incident(Base):
     __tablename__ = "incidents"
 

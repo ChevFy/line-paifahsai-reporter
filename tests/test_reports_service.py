@@ -1,27 +1,24 @@
 import asyncio
-import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
 from geoalchemy2 import WKTElement
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
+from conftest import PAI, requires_postgis
 from models import (
     AdminAlert,
-    Base,
-    District,
     Incident,
     IncidentEvent,
     IncidentStatus,
+    Job,
     LineUser,
     Report,
 )
+from services.dispatch import JOB_DISPATCH_INCIDENT
 from services.ops_date import ops_date_for
 from services.reports import (
-    ALERT_INCIDENT_NEEDS_DISPATCH,
     ALERT_REPORT_ON_CLOSED_INCIDENT,
     ReporterBlockedError,
     ReportOutcome,
@@ -30,54 +27,12 @@ from services.reports import (
     submit_report,
 )
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+pytestmark = [pytest.mark.anyio, requires_postgis]
 
-pytestmark = [
-    pytest.mark.anyio,
-    pytest.mark.skipif(
-        not TEST_DATABASE_URL,
-        reason="TEST_DATABASE_URL not set (needs PostgreSQL + PostGIS)",
-    ),
-]
-
-PAI = "5803"
 BASE_LAT = 19.36
 BASE_LON = 98.44
 DEGREES_LAT_PER_METER = 1 / 110_700
 NOW = datetime(2026, 3, 2, 3, 0, tzinfo=UTC)
-
-
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
-@pytest.fixture(scope="module")
-def schema():
-    engine = sa.create_engine(TEST_DATABASE_URL, poolclass=NullPool)
-    with engine.begin() as connection:
-        connection.execute(sa.text("CREATE EXTENSION IF NOT EXISTS postgis"))
-        Base.metadata.drop_all(connection)
-        Base.metadata.create_all(connection)
-    yield engine
-    with engine.begin() as connection:
-        Base.metadata.drop_all(connection)
-    engine.dispose()
-
-
-@pytest.fixture
-async def sessionmaker(schema):
-    with schema.begin() as connection:
-        tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
-        connection.execute(sa.text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
-        connection.execute(
-            sa.insert(District).values(
-                code=PAI, name_th="ปาย", province_name_th="แม่ฮ่องสอน"
-            )
-        )
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
 
 
 def submission(
@@ -135,11 +90,24 @@ async def alert_types(sessionmaker) -> list[str]:
         return list(rows.scalars())
 
 
-async def test_first_report_creates_incident_and_alerts_admin(sessionmaker):
+async def dispatch_job_keys(sessionmaker) -> list[str]:
+    async with sessionmaker() as session:
+        rows = await session.execute(
+            sa.select(Job.idempotency_key)
+            .where(Job.job_type == JOB_DISPATCH_INCIDENT)
+            .order_by(Job.id)
+        )
+        return list(rows.scalars())
+
+
+async def test_first_report_creates_incident_and_enqueues_dispatch(sessionmaker):
     result = await submit(sessionmaker, submission())
 
     assert result.outcome == ReportOutcome.NEW_INCIDENT
-    assert await alert_types(sessionmaker) == [ALERT_INCIDENT_NEEDS_DISPATCH]
+    assert await dispatch_job_keys(sessionmaker) == [
+        f"{JOB_DISPATCH_INCIDENT}:{result.incident_id}"
+    ]
+    assert await alert_types(sessionmaker) == []
     assert await scalar(sessionmaker, sa.select(LineUser.report_count)) == 1
     assert (
         await scalar(sessionmaker, sa.select(IncidentEvent.event_type))
@@ -153,7 +121,7 @@ async def test_report_within_radius_merges(sessionmaker):
 
     assert second.outcome == ReportOutcome.MERGED
     assert second.incident_id == first.incident_id
-    assert await alert_types(sessionmaker) == [ALERT_INCIDENT_NEEDS_DISPATCH]
+    assert len(await dispatch_job_keys(sessionmaker)) == 1
 
 
 async def test_report_outside_radius_creates_new_incident(sessionmaker):

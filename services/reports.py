@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
+    ACTIVE_INCIDENT_STATUSES,
     ActorType,
     AlertSeverity,
     District,
@@ -20,6 +21,7 @@ from models import (
     Report,
 )
 from services.admin_alerts import record_admin_alert
+from services.dispatch import enqueue_dispatch
 from services.ops_date import ops_date_for
 
 logger = logging.getLogger(__name__)
@@ -27,12 +29,10 @@ logger = logging.getLogger(__name__)
 DEDUP_RADIUS_METERS = 1000
 DEDUP_CLOSED_WINDOW = timedelta(hours=6)
 DEDUP_LOCK_NAME = "incident_dedup"
-ACTIVE_STATUSES = (IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS)
 
 EVENT_INCIDENT_CREATED = "incident_created"
 EVENT_REPORT_ATTACHED = "report_attached"
 ALERT_REPORT_ON_CLOSED_INCIDENT = "report_on_recently_closed_incident"
-ALERT_INCIDENT_NEEDS_DISPATCH = "incident_needs_dispatch"
 
 
 class ReportOutcome(StrEnum):
@@ -145,23 +145,7 @@ async def submit_report(
     )
 
     if outcome == ReportOutcome.NEW_INCIDENT:
-        await record_admin_alert(
-            session,
-            alert_type=ALERT_INCIDENT_NEEDS_DISPATCH,
-            severity=AlertSeverity.CRITICAL,
-            message=(
-                f"มีเหตุใหม่ incident #{incident.id} อำเภอ {submission.district_code} "
-                "ระบบยังไม่ส่งหาจิตอาสาอัตโนมัติ กรุณาประสานจิตอาสาเอง"
-            ),
-            payload={
-                "incident_id": incident.id,
-                "report_id": report.id,
-                "district_code": submission.district_code,
-                "latitude": submission.latitude,
-                "longitude": submission.longitude,
-            },
-            dedup_key=f"{ALERT_INCIDENT_NEEDS_DISPATCH}:{incident.id}",
-        )
+        await enqueue_dispatch(session, incident.id)
 
     if outcome == ReportOutcome.MERGED_RECENTLY_CLOSED:
         await record_admin_alert(
@@ -225,7 +209,7 @@ async def find_matching_incident(
     now: datetime,
 ) -> Incident | None:
     point = sa.func.ST_GeogFromText(ewkt)
-    is_active = Incident.status.in_(ACTIVE_STATUSES)
+    is_active = Incident.status.in_(ACTIVE_INCIDENT_STATUSES)
     statement = (
         sa.select(Incident)
         .where(

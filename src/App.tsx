@@ -1,34 +1,27 @@
 import { useEffect, useState } from "react";
 import liff, { initLiff } from "./liff";
-
-type Profile = { displayName: string; pictureUrl?: string; userId: string };
+import ReportPage from "./liff/pages/ReportPage";
 
 export default function App() {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     initLiff()
-      .then(async () => {
-        // เปิดจากเบราว์เซอร์นอก LINE จะยังไม่ล็อกอิน
+      .then(() => {
         if (!liff.isLoggedIn()) {
           liff.login();
           return;
         }
-        setProfile(await liff.getProfile());
+        setReady(true);
       })
-      .catch((e) => setError(String(e)));
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : "เปิด LIFF ไม่สำเร็จ");
+      });
   }, []);
 
-  if (error) return <p>เกิดข้อผิดพลาด: {error}</p>;
-  if (!profile) return <p>กำลังโหลด...</p>;
+  if (error) return <main className="status-page"><p className="error-text">{error}</p></main>;
+  if (!ready) return <main className="status-page"><p>กำลังเตรียมแบบฟอร์ม...</p></main>;
 
-  return (
-    <div style={{ padding: 24, textAlign: "center" }}>
-      <img src={profile.pictureUrl} width={96} style={{ borderRadius: "50%" }} />
-      <h2>สวัสดี {profile.displayName}</h2>
-      <p>เปิดใน LINE: {liff.isInClient() ? "ใช่" : "ไม่ใช่"}</p>
-      <button onClick={() => liff.closeWindow()}>ปิดหน้าต่าง</button>
-    </div>
-  );
+  return <ReportPage />;
 }

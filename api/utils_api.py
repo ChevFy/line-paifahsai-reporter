@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.districts import router as districts_router
+from api.errors import register_error_handlers
 from api.incidents import router as incidents_router
 from api.reports import router as reports_router
 from api.volunteers import router as volunteers_router
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+register_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

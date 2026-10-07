@@ -80,3 +80,6 @@ def test_invalid_district_code_returns_422(client):
     response = client.get("/incidents/active", params={"district_code": "abc"})
 
     assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["message"]
+    assert detail["errors"][0]["loc"] == ["query", "district_code"]

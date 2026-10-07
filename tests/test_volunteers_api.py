@@ -115,6 +115,9 @@ def test_register_bad_phone_returns_422(client, verified):
     )
 
     assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["message"]
+    assert detail["errors"][0]["loc"] == ["body", "phone"]
 
 
 def test_register_unknown_district_returns_422(client, verified, monkeypatch):
@@ -125,6 +128,21 @@ def test_register_unknown_district_returns_422(client, verified, monkeypatch):
     response = client.post("/volunteers", json=valid_body(), headers=AUTH)
 
     assert response.status_code == 422
+    assert "อำเภอ" in response.json()["detail"]["message"]
+
+
+def test_register_without_token_has_message(client):
+    response = client.post("/volunteers", json=valid_body())
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["message"]
+
+
+def test_unknown_route_has_message(client):
+    response = client.get("/does-not-exist")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": {"message": "Not Found"}}
 
 
 def test_me_returns_404_when_not_registered(client, verified, monkeypatch):

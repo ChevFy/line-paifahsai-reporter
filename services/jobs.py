@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -69,10 +70,17 @@ async def claim_next_job(
     session: AsyncSession,
     worker_id: str,
     now: datetime,
+    include_types: Collection[str] | None = None,
+    exclude_types: Collection[str] | None = None,
 ) -> ClaimedJob | None:
+    conditions = [Job.status == JobStatus.PENDING, Job.run_at <= now]
+    if include_types is not None:
+        conditions.append(Job.job_type.in_(include_types))
+    if exclude_types is not None:
+        conditions.append(Job.job_type.not_in(exclude_types))
     candidate = (
         sa.select(Job.id)
-        .where(Job.status == JobStatus.PENDING, Job.run_at <= now)
+        .where(*conditions)
         .order_by(Job.run_at, Job.id)
         .limit(1)
         .with_for_update(skip_locked=True)

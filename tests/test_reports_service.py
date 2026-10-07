@@ -24,6 +24,8 @@ from services.dispatch import (
 from services.ops_date import ops_date_for
 from services.reports import (
     ALERT_REPORT_ON_CLOSED_INCIDENT,
+    ALERT_STALE_ACTIVE_INCIDENT,
+    DEDUP_STALE_ACTIVE_AFTER,
     ReporterBlockedError,
     ReportOutcome,
     ReportSubmission,
@@ -228,3 +230,49 @@ async def test_concurrent_reports_at_same_spot_create_one_incident(sessionmaker)
     assert outcomes.count(ReportOutcome.MERGED) == 4
     assert len({result.incident_id for result in results}) == 1
     assert await scalar(sessionmaker, sa.select(sa.func.count(Incident.id))) == 1
+
+
+async def set_last_activity(sessionmaker, incident_id: int, at: datetime):
+    async with sessionmaker() as session, session.begin():
+        await session.execute(
+            sa.update(Incident).where(Incident.id == incident_id).values(created_at=at)
+        )
+        session.add(
+            IncidentEvent(
+                incident_id=incident_id,
+                event_type="volunteer_accepted",
+                actor_type="volunteer",
+                created_at=at,
+            )
+        )
+
+
+async def test_stale_active_incident_does_not_swallow_new_report(sessionmaker):
+    stale_id = await add_incident(sessionmaker, IncidentStatus.IN_PROGRESS)
+    await set_last_activity(
+        sessionmaker, stale_id, NOW - DEDUP_STALE_ACTIVE_AFTER - timedelta(minutes=1)
+    )
+
+    result = await submit(sessionmaker, submission())
+
+    assert result.outcome == ReportOutcome.NEW_INCIDENT
+    assert result.incident_id != stale_id
+    assert ALERT_STALE_ACTIVE_INCIDENT in await alert_types(sessionmaker)
+    dispatches = await scalar(
+        sessionmaker,
+        sa.select(sa.func.count(Job.id)).where(
+            Job.job_type == JOB_DISPATCH_INCIDENT
+        ),
+    )
+    assert dispatches == 1
+
+
+async def test_recently_active_incident_still_merges(sessionmaker):
+    active_id = await add_incident(sessionmaker, IncidentStatus.IN_PROGRESS)
+    await set_last_activity(sessionmaker, active_id, NOW - timedelta(hours=1))
+
+    result = await submit(sessionmaker, submission())
+
+    assert result.outcome == ReportOutcome.MERGED
+    assert result.incident_id == active_id
+    assert ALERT_STALE_ACTIVE_INCIDENT not in await alert_types(sessionmaker)

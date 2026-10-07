@@ -2,7 +2,8 @@ import asyncio
 import logging
 import os
 import socket
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -37,12 +38,26 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_INCIDENT_CLOSED: handle_incident_closed,
 }
 
-_wake: asyncio.Event | None = None
+
+
+@dataclass(frozen=True)
+class WorkerLane:
+    name: str
+    include_types: Collection[str] | None = None
+    exclude_types: Collection[str] | None = None
+
+
+EVENTS_LANE = WorkerLane("events", include_types=(JOB_LINE_EVENT,))
+BACKGROUND_LANE = WorkerLane("background", exclude_types=(JOB_LINE_EVENT,))
+ALL_LANE = WorkerLane("all")
+LANES = (EVENTS_LANE, BACKGROUND_LANE)
+
+_wake_events: set[asyncio.Event] = set()
 
 
 def wake_worker() -> None:
-    if _wake is not None:
-        _wake.set()
+    for event in _wake_events:
+        event.set()
 
 
 def default_worker_id() -> str:
@@ -53,9 +68,16 @@ async def run_one_job(
     sessionmaker: async_sessionmaker,
     worker_id: str,
     handlers: dict[str, JobHandler] = HANDLERS,
+    lane: WorkerLane = ALL_LANE,
 ) -> bool:
     async with sessionmaker() as session, session.begin():
-        job = await claim_next_job(session, worker_id, datetime.now(UTC))
+        job = await claim_next_job(
+            session,
+            worker_id,
+            datetime.now(UTC),
+            include_types=lane.include_types,
+            exclude_types=lane.exclude_types,
+        )
     if job is None:
         return False
 
@@ -91,35 +113,36 @@ async def run_one_job(
 async def run_worker(
     sessionmaker: async_sessionmaker,
     stop: asyncio.Event,
+    lane: WorkerLane = ALL_LANE,
     worker_id: str | None = None,
 ) -> None:
-    global _wake
-
-    worker_id = worker_id or default_worker_id()
-    _wake = asyncio.Event()
+    worker_id = f"{worker_id or default_worker_id()}:{lane.name}"
+    wake = asyncio.Event()
+    _wake_events.add(wake)
     logger.info("job worker started: worker_id=%s", worker_id)
     next_stale_check = datetime.now(UTC)
 
-    while not stop.is_set():
-        processed = False
-        try:
-            now = datetime.now(UTC)
-            if now >= next_stale_check:
-                async with sessionmaker() as session, session.begin():
-                    await requeue_stale_jobs(session, now)
-                next_stale_check = now + STALE_CHECK_INTERVAL
-            processed = await run_one_job(sessionmaker, worker_id)
-        except Exception:
-            logger.exception("job worker loop error: worker_id=%s", worker_id)
-
-        if not processed:
+    try:
+        while not stop.is_set():
+            processed = False
             try:
-                await asyncio.wait_for(_wake.wait(), POLL_INTERVAL_SECONDS)
-            except TimeoutError:
-                pass
-            _wake.clear()
+                now = datetime.now(UTC)
+                if now >= next_stale_check:
+                    async with sessionmaker() as session, session.begin():
+                        await requeue_stale_jobs(session, now)
+                    next_stale_check = now + STALE_CHECK_INTERVAL
+                processed = await run_one_job(sessionmaker, worker_id, lane=lane)
+            except Exception:
+                logger.exception("job worker loop error: worker_id=%s", worker_id)
 
-    _wake = None
+            if not processed:
+                try:
+                    await asyncio.wait_for(wake.wait(), POLL_INTERVAL_SECONDS)
+                except TimeoutError:
+                    pass
+                wake.clear()
+    finally:
+        _wake_events.discard(wake)
     logger.info("job worker stopped: worker_id=%s", worker_id)
 
 

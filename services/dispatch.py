@@ -67,12 +67,18 @@ async def enqueue_escalation_check(
     session: AsyncSession,
     incident_id: int,
     now: datetime,
+    round_key: str = DispatchReason.INITIAL.value,
+    after_event_id: int = 0,
 ) -> bool:
     return await enqueue_job(
         session,
         job_type=JOB_ESCALATE_INCIDENT,
-        payload={"incident_id": incident_id},
-        idempotency_key=f"{JOB_ESCALATE_INCIDENT}:{incident_id}",
+        payload={
+            "incident_id": incident_id,
+            "round": round_key,
+            "after_event_id": after_event_id,
+        },
+        idempotency_key=f"{JOB_ESCALATE_INCIDENT}:{incident_id}:{round_key}",
         run_at=now + ESCALATION_DELAY,
     )
 

@@ -40,7 +40,11 @@ class LineService:
         self.blob_api = AsyncMessagingApiBlob(self.api_client)
 
     async def retry(
-        self, operation: Callable[..., Awaitable[T]], *args, **kwargs
+        self,
+        operation: Callable[..., Awaitable[T]],
+        *args,
+        caller_retry_key: bool = False,
+        **kwargs,
     ) -> T | None:
         operation_name = getattr(operation, "__name__", repr(operation))
 
@@ -48,10 +52,13 @@ class LineService:
             try:
                 return await operation(*args, **kwargs)
             except Exception as error:
-                if attempt > 0 and "x_line_retry_key" in kwargs and self._is_conflict(error):
+                if self._already_accepted(error, attempt, caller_retry_key, kwargs):
                     logger.info(
-                        "LINE API request already accepted on earlier attempt: %s",
+                        "LINE API request already accepted earlier: %s attempt=%s "
+                        "caller_retry_key=%s",
                         operation_name,
+                        attempt,
+                        caller_retry_key,
                     )
                     return None
                 if not self._is_retryable(error) or attempt == self.max_retries - 1:
@@ -69,6 +76,18 @@ class LineService:
                 await asyncio.sleep(delay)
 
         raise RuntimeError("retry loop exited unexpectedly")
+
+    @classmethod
+    def _already_accepted(
+        cls,
+        error: Exception,
+        attempt: int,
+        caller_retry_key: bool,
+        kwargs: dict,
+    ) -> bool:
+        if "x_line_retry_key" not in kwargs or not cls._is_conflict(error):
+            return False
+        return attempt > 0 or caller_retry_key
 
     @staticmethod
     def _is_conflict(error: Exception) -> bool:
@@ -100,6 +119,7 @@ class LineService:
         return await self.retry(
             self.api.push_message,
             request,
+            caller_retry_key=retry_key is not None,
             x_line_retry_key=retry_key or str(uuid.uuid4()),
         )
 
@@ -116,6 +136,7 @@ class LineService:
         return await self.retry(
             self.api.multicast,
             request,
+            caller_retry_key=retry_key is not None,
             x_line_retry_key=retry_key or str(uuid.uuid4()),
         )
 

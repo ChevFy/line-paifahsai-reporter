@@ -28,11 +28,13 @@ logger = logging.getLogger(__name__)
 
 DEDUP_RADIUS_METERS = 1000
 DEDUP_CLOSED_WINDOW = timedelta(hours=6)
+DEDUP_STALE_ACTIVE_AFTER = timedelta(hours=6)
 DEDUP_LOCK_NAME = "incident_dedup"
 
 EVENT_INCIDENT_CREATED = "incident_created"
 EVENT_REPORT_ATTACHED = "report_attached"
 ALERT_REPORT_ON_CLOSED_INCIDENT = "report_on_recently_closed_incident"
+ALERT_STALE_ACTIVE_INCIDENT = "stale_active_incident"
 
 
 class ReportOutcome(StrEnum):
@@ -147,6 +149,7 @@ async def submit_report(
     if outcome == ReportOutcome.NEW_INCIDENT:
         await enqueue_dispatch(session, incident.id)
         await enqueue_escalation_check(session, incident.id, now)
+        await alert_stale_neighbour(session, ewkt, now, incident.id, report.id)
 
     if outcome == ReportOutcome.MERGED_RECENTLY_CLOSED:
         await record_admin_alert(
@@ -204,13 +207,25 @@ async def find_report_by_client_request_id(
     return (await session.execute(statement)).scalar_one_or_none()
 
 
+def last_activity_at():
+    latest_event = (
+        sa.select(sa.func.max(IncidentEvent.created_at))
+        .where(IncidentEvent.incident_id == Incident.id)
+        .scalar_subquery()
+    )
+    return sa.func.coalesce(latest_event, Incident.created_at)
+
+
 async def find_matching_incident(
     session: AsyncSession,
     ewkt: str,
     now: datetime,
 ) -> Incident | None:
     point = sa.func.ST_GeogFromText(ewkt)
-    is_active = Incident.status.in_(ACTIVE_INCIDENT_STATUSES)
+    is_active = sa.and_(
+        Incident.status.in_(ACTIVE_INCIDENT_STATUSES),
+        last_activity_at() >= now - DEDUP_STALE_ACTIVE_AFTER,
+    )
     statement = (
         sa.select(Incident)
         .where(
@@ -231,3 +246,55 @@ async def find_matching_incident(
         .limit(1)
     )
     return (await session.execute(statement)).scalar_one_or_none()
+
+
+async def alert_stale_neighbour(
+    session: AsyncSession,
+    ewkt: str,
+    now: datetime,
+    new_incident_id: int,
+    report_id: int,
+) -> None:
+    point = sa.func.ST_GeogFromText(ewkt)
+    last_activity = last_activity_at()
+    row = (
+        await session.execute(
+            sa.select(Incident.id, last_activity.label("last_activity"))
+            .where(
+                sa.func.ST_DWithin(Incident.location, point, DEDUP_RADIUS_METERS),
+                Incident.status.in_(ACTIVE_INCIDENT_STATUSES),
+                Incident.id != new_incident_id,
+                last_activity < now - DEDUP_STALE_ACTIVE_AFTER,
+            )
+            .order_by(sa.func.ST_Distance(Incident.location, point), Incident.id)
+            .limit(1)
+        )
+    ).one_or_none()
+    if row is None:
+        return
+
+    hours = int(DEDUP_STALE_ACTIVE_AFTER.total_seconds() // 3600)
+    logger.warning(
+        "stale active incident near new report: stale_id=%s new_id=%s "
+        "last_activity=%s",
+        row.id,
+        new_incident_id,
+        row.last_activity,
+    )
+    await record_admin_alert(
+        session,
+        alert_type=ALERT_STALE_ACTIVE_INCIDENT,
+        severity=AlertSeverity.CRITICAL,
+        message=(
+            f"เหตุ #{row.id} ยังเปิดอยู่แต่ไม่มีความเคลื่อนไหวเกิน {hours} ชม. "
+            f"มีผู้แจ้งใหม่ใกล้จุดเดิม ระบบสร้างเหตุใหม่ #{new_incident_id} "
+            "และส่งหาจิตอาสาแล้ว กรุณาตรวจสอบและปิดเหตุเก่า"
+        ),
+        payload={
+            "stale_incident_id": row.id,
+            "new_incident_id": new_incident_id,
+            "report_id": report_id,
+            "last_activity_at": row.last_activity.isoformat(),
+        },
+        dedup_key=f"{ALERT_STALE_ACTIVE_INCIDENT}:{row.id}",
+    )

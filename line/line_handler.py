@@ -6,8 +6,6 @@ from datetime import UTC, datetime
 from linebot.v3.messaging import Message, TextMessage
 from linebot.v3.webhooks import Event, MessageEvent, PostbackEvent, TextMessageContent
 
-from config.config import settings
-from core.alerts import record_admin_alert_safely
 from core.db import SessionLocal
 from line.line_client import get_line_service
 from line.line_flex import (
@@ -15,7 +13,7 @@ from line.line_flex import (
     build_assignment_controls,
     parse_postback_data,
 )
-from models import AlertSeverity, AssignmentStatus
+from models import AssignmentStatus
 from services.assignments import (
     AcceptOutcome,
     AcceptResult,
@@ -28,8 +26,6 @@ from services.assignments import (
 
 logger = logging.getLogger(__name__)
 
-MAX_ERROR_TEXT_LENGTH = 500
-EVENT_FAILED_ALERT_TYPE = "line_event_failed"
 STALE_BUTTON_MESSAGE = "ปุ่มนี้ใช้ไม่ได้แล้ว กรุณาใช้ข้อความแจ้งเหตุล่าสุด"
 PUSH_RETRY_KEY_NAMESPACE = uuid.UUID("2b0f6c1e-8d4a-4f3b-9e2c-5a7d1b3c4e6f")
 STATUS_LABELS = {
@@ -48,60 +44,19 @@ async def handle_event(event: Event) -> None:
             await handle_text_message(event)
         elif isinstance(event, PostbackEvent):
             await handle_postback(event)
-    except Exception as error:
+    except Exception:
         logger.exception(
-            "failed to handle event: type=%s webhook_event_id=%s user_id=%s",
+            "failed to handle event, job will retry: type=%s webhook_event_id=%s "
+            "user_id=%s",
             type(event).__name__,
             event.webhook_event_id,
             get_user_id(event),
         )
-        await alert_admins_event_failed(event, error)
+        raise
 
 
 def get_user_id(event: Event) -> str | None:
     return getattr(event.source, "user_id", None)
-
-
-async def alert_admins_event_failed(event: Event, error: Exception) -> None:
-    error_text = f"{type(error).__name__}: {error}"[:MAX_ERROR_TEXT_LENGTH]
-    payload = {
-        "event_type": type(event).__name__,
-        "webhook_event_id": event.webhook_event_id,
-        "user_id": get_user_id(event),
-        "error_type": type(error).__name__,
-        "error": error_text,
-    }
-    message = (
-        "ระบบประมวลผล LINE event ไม่สำเร็จ\n"
-        f"event: {payload['event_type']}\n"
-        f"webhookEventId: {payload['webhook_event_id']}\n"
-        f"user_id: {payload['user_id']}\n"
-        f"error: {error_text}"
-    )
-
-    await record_admin_alert_safely(
-        alert_type=EVENT_FAILED_ALERT_TYPE,
-        severity=AlertSeverity.CRITICAL,
-        message=message,
-        payload=payload,
-        dedup_key=f"{EVENT_FAILED_ALERT_TYPE}:{event.webhook_event_id}",
-    )
-    await send_debug_alert_to_line(event, message)
-
-
-async def send_debug_alert_to_line(event: Event, message: str) -> None:
-    admin_user_ids = settings.ADMIN_LINE_USER_IDS
-    if not admin_user_ids:
-        return
-
-    try:
-        await get_line_service().multicast(admin_user_ids, TextMessage(text=message))
-    except Exception:
-        logger.error(
-            "failed to send debug admin alert to LINE: webhook_event_id=%s",
-            event.webhook_event_id,
-            exc_info=True,
-        )
 
 
 async def handle_text_message(event: MessageEvent) -> None:
@@ -161,6 +116,11 @@ def update_reply_text(result: UpdateResult) -> str:
                     "ถ้าจะกลับไปช่วย กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ"
                 )
             return f"คุณรายงานว่าเสร็จจาก{incident}ไปแล้ว ขอบคุณครับ"
+        case UpdateOutcome.VOLUNTEER_NOT_APPROVED:
+            return (
+                f"บัญชีจิตอาสาของคุณถูกระงับ จึงบันทึกสถานะใน{incident}ไม่ได้ "
+                "ถ้าไปต่อไม่ได้ กด \"ถอนตัว\" ได้ กรุณาติดต่อแอดมิน"
+            )
         case UpdateOutcome.NOT_ASSIGNED:
             return f"คุณยังไม่ได้รับ{incident} กด \"ฉันขอไป\" ในข้อความแจ้งเหตุก่อน"
         case UpdateOutcome.INCIDENT_CLOSED:

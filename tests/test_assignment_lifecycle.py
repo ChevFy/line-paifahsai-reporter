@@ -21,6 +21,7 @@ from models import (
     Job,
     LineUser,
     Report,
+    VolunteerStatus,
 )
 from services.assignments import (
     ALERT_ALL_WITHDRAWN,
@@ -30,13 +31,18 @@ from services.assignments import (
     UpdateOutcome,
     update_assignment,
 )
-from services.dispatch import JOB_DISPATCH_INCIDENT
+from services.dispatch import (
+    ESCALATION_DELAY,
+    JOB_DISPATCH_INCIDENT,
+    JOB_ESCALATE_INCIDENT,
+)
 from services.escalation import (
     ALERT_INCIDENT_UNACCEPTED,
     EscalationOutcome,
     escalate_if_unaccepted,
 )
 from services.ops_date import ops_date_for
+from services.volunteers import set_volunteer_status
 from test_volunteer_flow import (
     NOW,
     FakeLine,
@@ -384,3 +390,90 @@ async def test_line_event_job_dispatches_to_handler(sessionmaker, monkeypatch):
 
     assert [type(event).__name__ for event in handled] == ["PostbackEvent"]
 
+
+
+async def test_suspended_volunteer_cannot_mark_done(sessionmaker):
+    volunteer_id = await add_volunteer(sessionmaker, "UV1")
+    incident_id = await add_incident(sessionmaker)
+    await accept(sessionmaker, "UV1", incident_id)
+    async with sessionmaker() as session, session.begin():
+        await set_volunteer_status(
+            session, volunteer_id, VolunteerStatus.SUSPENDED, NOW
+        )
+
+    done = await update(sessionmaker, "UV1", incident_id, DONE)
+    arrived = await update(sessionmaker, "UV1", incident_id, ARRIVED)
+
+    assert done.outcome == UpdateOutcome.VOLUNTEER_NOT_APPROVED
+    assert arrived.outcome == UpdateOutcome.VOLUNTEER_NOT_APPROVED
+    assert await incident_status(sessionmaker, incident_id) == IncidentStatus.IN_PROGRESS
+
+
+async def test_suspended_volunteer_can_still_withdraw(sessionmaker):
+    volunteer_id = await add_volunteer(sessionmaker, "UV1")
+    incident_id = await add_incident(sessionmaker)
+    await accept(sessionmaker, "UV1", incident_id)
+    async with sessionmaker() as session, session.begin():
+        await set_volunteer_status(
+            session, volunteer_id, VolunteerStatus.SUSPENDED, NOW
+        )
+
+    result = await update(sessionmaker, "UV1", incident_id, WITHDRAW)
+
+    assert result.outcome == UpdateOutcome.UPDATED
+    assert result.all_withdrawn is True
+
+
+async def test_all_withdrawn_schedules_new_escalation_round(sessionmaker):
+    await add_volunteer(sessionmaker, "UV1")
+    incident_id = await add_incident(sessionmaker)
+    await accept(sessionmaker, "UV1", incident_id)
+
+    await update(sessionmaker, "UV1", incident_id, WITHDRAW)
+
+    checks = await jobs_of(sessionmaker, JOB_ESCALATE_INCIDENT)
+    assert len(checks) == 1
+    assert checks[0].payload["round"].startswith("all_withdrawn:")
+    assert checks[0].payload["after_event_id"] > 0
+    assert checks[0].run_at == NOW + ESCALATION_DELAY
+
+
+async def escalate_round(sessionmaker, incident_id: int, round_key: str, after: int):
+    async with sessionmaker() as session, session.begin():
+        return await escalate_if_unaccepted(
+            session, incident_id, NOW, round_key=round_key, after_event_id=after
+        )
+
+
+async def test_initial_escalation_superseded_by_all_withdrawn_round(sessionmaker):
+    await add_volunteer(sessionmaker, "UV1")
+    incident_id = await add_incident(sessionmaker)
+    await accept(sessionmaker, "UV1", incident_id)
+    await update(sessionmaker, "UV1", incident_id, WITHDRAW)
+    dispatches_before = len(await jobs_of(sessionmaker, JOB_DISPATCH_INCIDENT))
+
+    outcome = await escalate(sessionmaker, incident_id)
+
+    assert outcome == EscalationOutcome.SUPERSEDED
+    assert len(await jobs_of(sessionmaker, JOB_DISPATCH_INCIDENT)) == dispatches_before
+
+
+async def test_each_round_escalates_once(sessionmaker):
+    await add_volunteer(sessionmaker, "UV1")
+    incident_id = await add_incident(sessionmaker)
+    await accept(sessionmaker, "UV1", incident_id)
+    await update(sessionmaker, "UV1", incident_id, WITHDRAW)
+    check = (await jobs_of(sessionmaker, JOB_ESCALATE_INCIDENT))[0]
+    round_key = check.payload["round"]
+    after = check.payload["after_event_id"]
+
+    first = await escalate_round(sessionmaker, incident_id, round_key, after)
+    second = await escalate_round(sessionmaker, incident_id, round_key, after)
+
+    assert first == second == EscalationOutcome.ESCALATED
+    escalations = [
+        job
+        for job in await jobs_of(sessionmaker, JOB_DISPATCH_INCIDENT)
+        if job.payload["reason"] == "escalation"
+    ]
+    assert [job.payload["round"] for job in escalations] == [f"escalation:{round_key}"]

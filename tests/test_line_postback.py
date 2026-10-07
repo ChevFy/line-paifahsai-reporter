@@ -8,6 +8,7 @@ from line import line_handler
 from line.line_flex import (
     ACTION_ACCEPT,
     build_incident_alert,
+    first_name,
     parse_postback_data,
     postback_data,
 )
@@ -184,23 +185,16 @@ async def test_reply_failure_falls_back_to_push(recorder, monkeypatch):
     assert retry_key is not None
 
 
-async def test_accept_db_error_alerts_admin(recorder, monkeypatch):
-    alerts = []
-
+async def test_accept_db_error_propagates_for_job_retry(recorder, monkeypatch):
     async def explode(session, line_user_id, incident_id, now):
         raise RuntimeError("db down")
 
-    async def fake_alert(**kwargs):
-        alerts.append(kwargs)
-
     monkeypatch.setattr(line_handler, "accept_incident", explode)
-    monkeypatch.setattr(line_handler, "record_admin_alert_safely", fake_alert)
 
-    await line_handler.handle_event(postback_event("action=accept&incident_id=42"))
+    with pytest.raises(RuntimeError, match="db down"):
+        await line_handler.handle_event(postback_event("action=accept&incident_id=42"))
 
-    assert [alert["alert_type"] for alert in alerts] == [
-        line_handler.EVENT_FAILED_ALERT_TYPE
-    ]
+    assert recorder.replies == []
 
 
 def use_update(monkeypatch, result: UpdateResult, calls: list | None = None):
@@ -306,3 +300,11 @@ def test_flex_header_per_dispatch_reason(reason):
     message = build_incident_alert(target(reason=reason), PHOTOS_URL).to_dict()
 
     assert "#42" in message["contents"]["header"]["contents"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    ("full_name", "expected"),
+    [("สมศักดิ์ ใจดี", "สมศักดิ์"), ("   ", "จิตอาสา"), ("", "จิตอาสา")],
+)
+def test_first_name_never_crashes(full_name, expected):
+    assert first_name(full_name) == expected

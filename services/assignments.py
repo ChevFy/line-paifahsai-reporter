@@ -19,7 +19,11 @@ from models import (
     VolunteerStatus,
 )
 from services.admin_alerts import record_admin_alert
-from services.dispatch import DispatchReason, enqueue_dispatch
+from services.dispatch import (
+    DispatchReason,
+    enqueue_dispatch,
+    enqueue_escalation_check,
+)
 from services.jobs import enqueue_job
 from services.volunteers import find_volunteer_by_line_user
 
@@ -77,6 +81,7 @@ class UpdateOutcome(StrEnum):
     UNCHANGED = "unchanged"
     INVALID_TRANSITION = "invalid_transition"
     NOT_ASSIGNED = "not_assigned"
+    VOLUNTEER_NOT_APPROVED = "volunteer_not_approved"
     INCIDENT_NOT_FOUND = "incident_not_found"
     INCIDENT_CLOSED = "incident_closed"
 
@@ -212,6 +217,24 @@ async def update_assignment(
         )
         return UpdateResult(UpdateOutcome.NOT_ASSIGNED, incident_id, action)
 
+    if (
+        volunteer.status != VolunteerStatus.APPROVED
+        and action != AssignmentAction.WITHDRAW
+    ):
+        logger.warning(
+            "%s by non-approved volunteer: incident_id=%s volunteer_id=%s status=%s",
+            action,
+            incident_id,
+            volunteer.id,
+            volunteer.status,
+        )
+        return UpdateResult(
+            UpdateOutcome.VOLUNTEER_NOT_APPROVED,
+            incident_id,
+            action,
+            assignment_status=assignment.status,
+        )
+
     allowed_from, target = TRANSITIONS[action]
     if assignment.status == target:
         return await unchanged_result(session, incident_id, action, assignment.status)
@@ -263,7 +286,7 @@ async def update_assignment(
             await close_incident(session, incident, line_user_id, now)
             incident_closed = True
         else:
-            await reopen_after_all_withdrawn(session, incident, line_user_id)
+            await reopen_after_all_withdrawn(session, incident, line_user_id, now)
             all_withdrawn = True
     if action == AssignmentAction.WITHDRAW and not all_withdrawn:
         await enqueue_assignment_summary(session, incident_id, now)
@@ -339,6 +362,7 @@ async def reopen_after_all_withdrawn(
     session: AsyncSession,
     incident: Incident,
     line_user_id: str,
+    now: datetime,
 ) -> None:
     incident.status = IncidentStatus.OPEN
     event = IncidentEvent(
@@ -350,11 +374,15 @@ async def reopen_after_all_withdrawn(
     session.add(event)
     await session.flush()
 
+    round_key = f"{DispatchReason.ALL_WITHDRAWN.value}:{event.id}"
     await enqueue_dispatch(
         session,
         incident.id,
         DispatchReason.ALL_WITHDRAWN,
-        round_key=f"{DispatchReason.ALL_WITHDRAWN.value}:{event.id}",
+        round_key=round_key,
+    )
+    await enqueue_escalation_check(
+        session, incident.id, now, round_key=round_key, after_event_id=event.id
     )
     await record_admin_alert(
         session,

@@ -164,3 +164,30 @@ def test_me_returns_status(client, verified, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["volunteer"]["status"] == "approved"
+
+
+def test_register_whitespace_name_returns_422(client, verified, monkeypatch):
+    calls = []
+    use_register(monkeypatch, lambda registration: calls.append(registration))
+
+    response = client.post(
+        "/volunteers", json=valid_body() | {"full_name": "   "}, headers=AUTH
+    )
+
+    assert response.status_code == 422
+    assert calls == []
+
+
+def test_register_strips_name(client, verified, monkeypatch):
+    registrations = []
+
+    def register(registration):
+        registrations.append(registration)
+        return RegistrationResult(volunteer(), created=True)
+
+    use_register(monkeypatch, register)
+    client.post(
+        "/volunteers", json=valid_body() | {"full_name": "  สมศักดิ์ ใจดี "}, headers=AUTH
+    )
+
+    assert registrations[0].full_name == "สมศักดิ์ ใจดี"

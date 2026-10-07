@@ -149,3 +149,28 @@ async def test_stale_running_job_is_requeued(sessionmaker):
     job = await get_job(sessionmaker)
     assert job.status == JobStatus.PENDING
     assert job.locked_by is None
+
+
+async def enqueue_typed(sessionmaker, job_type: str, key: str):
+    async with sessionmaker() as session, session.begin():
+        await enqueue_job(session, job_type, {}, key, run_at=NOW - timedelta(minutes=1))
+
+
+async def test_lanes_claim_only_their_job_types(sessionmaker):
+    await enqueue_typed(sessionmaker, "dispatch_incident", "big-dispatch")
+    await enqueue_typed(sessionmaker, "line_event", "postback")
+
+    async with sessionmaker() as session, session.begin():
+        events = await claim_next_job(session, "w", NOW, include_types=["line_event"])
+    async with sessionmaker() as session, session.begin():
+        background = await claim_next_job(
+            session, "w", NOW, exclude_types=["line_event"]
+        )
+    async with sessionmaker() as session, session.begin():
+        nothing_left = await claim_next_job(
+            session, "w", NOW, include_types=["line_event"]
+        )
+
+    assert events.job_type == "line_event"
+    assert background.job_type == "dispatch_incident"
+    assert nothing_left is None

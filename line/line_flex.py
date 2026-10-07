@@ -23,6 +23,7 @@ MAX_DESCRIPTION_LENGTH = 300
 MAX_ALT_TEXT_LENGTH = 400
 FIRE_COLOR = "#D9480F"
 EMERGENCY_PHONE = "1362"
+UNNAMED_VOLUNTEER = "จิตอาสา"
 HEADERS = {
     DispatchReason.INITIAL: "🔥 แจ้งเหตุไฟป่า #{id}",
     DispatchReason.ESCALATION: "⚠️ ยังไม่มีใครรับ! ไฟป่า #{id}",
@@ -151,6 +152,11 @@ def build_assignment_controls(incident_id: int, text: str) -> FlexMessage:
     return FlexMessage(alt_text=text[:MAX_ALT_TEXT_LENGTH], contents=bubble)
 
 
+def first_name(full_name: str) -> str:
+    parts = full_name.split()
+    return parts[0] if parts else UNNAMED_VOLUNTEER
+
+
 def build_assignment_summary(summary: AssignmentSummary) -> TextMessage:
     count = len(summary.volunteer_names)
     head = f"เหตุ #{summary.incident_id} อ.{summary.district_name}"
@@ -161,7 +167,7 @@ def build_assignment_summary(summary: AssignmentSummary) -> TextMessage:
                 "ถ้าอยู่ใกล้และไปได้ กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ"
             )
         )
-    names = ", ".join(name.split()[0] for name in summary.volunteer_names)
+    names = ", ".join(first_name(name) for name in summary.volunteer_names)
     return TextMessage(
         text=(
             f"{head}: มีจิตอาสารับงานแล้ว {count} คน ({names})\n"

@@ -6,7 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.districts import router as districts_router
 from api.errors import register_error_handlers
+from api.incident_photos import router as incident_photos_router
 from api.incidents import router as incidents_router
+from api.report_images import router as report_images_router
 from api.reports import router as reports_router
 from api.volunteers import router as volunteers_router
 from config.config import settings
@@ -47,6 +49,8 @@ app.add_middleware(
 
 app.include_router(line_router)
 app.include_router(reports_router)
+app.include_router(report_images_router)
+app.include_router(incident_photos_router)
 app.include_router(districts_router)
 app.include_router(incidents_router)
 app.include_router(volunteers_router)

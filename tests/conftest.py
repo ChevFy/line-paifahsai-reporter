@@ -12,6 +12,13 @@ TEST_ENV = {
     "POSTGRES_PORT": "5432",
     "POSTGRES_DB": "test",
     "LIFF_ALLOWED_ORIGINS": '["https://liff.example"]',
+    "S3_ENDPOINT_URL": "http://127.0.0.1:8333",
+    "S3_REGION": "us-east-1",
+    "S3_ACCESS_KEY": "test-access-key",
+    "S3_SECRET_KEY": "test-secret-key",
+    "S3_BUCKET": "test-bucket",
+    "PUBLIC_BASE_URL": "https://paifahsai.example",
+    "PHOTO_LINK_SECRET": "test-photo-link-secret-0123456789abcdef",
 }
 
 for key, value in TEST_ENV.items():

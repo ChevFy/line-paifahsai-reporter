@@ -2,6 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from services.report_images import ImageOutcome
 from services.reports import ReportOutcome
 
 THAILAND_MIN_LATITUDE = 5.5
@@ -26,5 +27,12 @@ class ReportResponse(BaseModel):
     report_id: int
     incident_id: int
     outcome: ReportOutcome
+    message: str
+    emergency_phone: str
+
+
+class ReportImageResponse(BaseModel):
+    report_id: int
+    outcome: ImageOutcome
     message: str
     emergency_phone: str

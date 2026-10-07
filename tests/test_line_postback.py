@@ -23,6 +23,8 @@ from services.dispatch import DispatchReason, DispatchTarget
 
 pytestmark = pytest.mark.anyio
 
+PHOTOS_URL = "https://example.test/incidents/42/photos?expires=1&sig=abc"
+
 
 @pytest.fixture
 def anyio_backend():
@@ -124,17 +126,18 @@ def test_parse_rejects_bad_data(data):
 
 
 def test_flex_has_accept_button_and_map():
-    message = build_incident_alert(target()).to_dict()
+    message = build_incident_alert(target(), PHOTOS_URL).to_dict()
     footer = message["contents"]["footer"]["contents"]
 
     assert footer[0]["action"]["type"] == "postback"
     assert parse_postback_data(footer[0]["action"]["data"]) == (ACTION_ACCEPT, 42)
     assert "19.360000,98.440000" in footer[1]["action"]["uri"]
+    assert footer[2]["action"]["uri"] == PHOTOS_URL
     assert "#42" in message["altText"]
 
 
 def test_flex_without_description():
-    message = build_incident_alert(target(description=None)).to_dict()
+    message = build_incident_alert(target(description=None), PHOTOS_URL).to_dict()
     texts = [item["text"] for item in message["contents"]["body"]["contents"]]
 
     assert "ควันขึ้นหลังวัด" not in texts
@@ -300,6 +303,6 @@ async def test_invalid_transition_reply(recorder, monkeypatch, status, expected)
 
 @pytest.mark.parametrize("reason", list(DispatchReason))
 def test_flex_header_per_dispatch_reason(reason):
-    message = build_incident_alert(target(reason=reason)).to_dict()
+    message = build_incident_alert(target(reason=reason), PHOTOS_URL).to_dict()
 
     assert "#42" in message["contents"]["header"]["contents"][0]["text"]

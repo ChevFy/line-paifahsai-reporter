@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     POSTGRES_PORT: int
     POSTGRES_DB: str = Field(min_length=1)
 
+    S3_ENDPOINT_URL: str = Field(min_length=1)
+    S3_REGION: str = Field(min_length=1)
+    S3_ACCESS_KEY: str = Field(min_length=1)
+    S3_SECRET_KEY: str = Field(min_length=1)
+    S3_BUCKET: str = Field(min_length=1)
+
+    PUBLIC_BASE_URL: str = Field(pattern=r"^https://")
+    PHOTO_LINK_SECRET: str = Field(min_length=32)
+
     @property
     def DATABASE_URL(self) -> str:
         return (

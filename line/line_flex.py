@@ -55,7 +55,7 @@ def map_url(latitude: float, longitude: float) -> str:
     )
 
 
-def build_incident_alert(target: DispatchTarget) -> FlexMessage:
+def build_incident_alert(target: DispatchTarget, photos_url: str) -> FlexMessage:
     reported_at = target.created_at.astimezone(BANGKOK).strftime("%H:%M น.")
     location = f"อ.{target.district_name} จ.{target.province_name}"
 
@@ -113,6 +113,10 @@ def build_incident_alert(target: DispatchTarget) -> FlexMessage:
                         label="เปิดแผนที่",
                         uri=map_url(target.latitude, target.longitude),
                     ),
+                ),
+                FlexButton(
+                    style="secondary",
+                    action=URIAction(label="ดูรูปจากผู้แจ้ง", uri=photos_url),
                 ),
             ],
         ),

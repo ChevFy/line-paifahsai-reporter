@@ -9,7 +9,6 @@ TEST_ENV = {
     "POSTGRES_HOST": "localhost",
     "POSTGRES_PORT": "5432",
     "POSTGRES_DB": "test",
-    "LIFF_ALLOWED_ORIGINS": '["https://liff.example"]',
 }
 
 for key, value in TEST_ENV.items():

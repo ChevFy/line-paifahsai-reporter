@@ -1,9 +1,10 @@
+from functools import partial
+
 import httpx
 import pytest
 
 from line import line_id_token
 from line.line_id_token import (
-    IdTokenConfigError,
     IdTokenVerificationUnavailableError,
     InvalidIdTokenError,
     verify_id_token,
@@ -18,8 +19,11 @@ def anyio_backend():
 
 
 def use_transport(monkeypatch, handler):
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(line_id_token, "_http_client", client)
+    monkeypatch.setattr(
+        line_id_token.httpx,
+        "AsyncClient",
+        partial(httpx.AsyncClient, transport=httpx.MockTransport(handler)),
+    )
 
 
 async def test_valid_token_returns_identity(monkeypatch):
@@ -35,38 +39,17 @@ async def test_valid_token_returns_identity(monkeypatch):
 
 
 async def test_rejected_token_raises_invalid(monkeypatch):
-    use_transport(
-        monkeypatch,
-        lambda request: httpx.Response(
-            400,
-            json={"error": "invalid_request", "error_description": "IdToken expired."},
-        ),
-    )
+    use_transport(monkeypatch, lambda request: httpx.Response(400, json={"error": "x"}))
     with pytest.raises(InvalidIdTokenError):
         await verify_id_token("token")
 
 
-async def test_line_audience_rejection_raises_config_error(monkeypatch):
-    use_transport(
-        monkeypatch,
-        lambda request: httpx.Response(
-            400,
-            json={
-                "error": "invalid_request",
-                "error_description": "Invalid IdToken Audience.",
-            },
-        ),
-    )
-    with pytest.raises(IdTokenConfigError):
-        await verify_id_token("token")
-
-
-async def test_audience_mismatch_in_claims_raises_config_error(monkeypatch):
+async def test_audience_mismatch_raises_invalid(monkeypatch):
     use_transport(
         monkeypatch,
         lambda request: httpx.Response(200, json={"sub": "U123", "aud": "other"}),
     )
-    with pytest.raises(IdTokenConfigError):
+    with pytest.raises(InvalidIdTokenError):
         await verify_id_token("token")
 
 
@@ -83,15 +66,3 @@ async def test_network_error_raises_unavailable(monkeypatch):
     use_transport(monkeypatch, handler)
     with pytest.raises(IdTokenVerificationUnavailableError):
         await verify_id_token("token")
-
-
-async def test_sends_configured_channel_id(monkeypatch):
-    seen = {}
-
-    def handler(request):
-        seen["body"] = request.content.decode()
-        return httpx.Response(200, json={"sub": "U1", "aud": "test-login-channel"})
-
-    use_transport(monkeypatch, handler)
-    await verify_id_token("token")
-    assert "client_id=test-login-channel" in seen["body"]

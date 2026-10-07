@@ -21,7 +21,7 @@ from models import (
     Report,
 )
 from services.admin_alerts import record_admin_alert
-from services.dispatch import enqueue_dispatch
+from services.dispatch import enqueue_dispatch, enqueue_escalation_check
 from services.ops_date import ops_date_for
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,7 @@ async def submit_report(
 
     if outcome == ReportOutcome.NEW_INCIDENT:
         await enqueue_dispatch(session, incident.id)
+        await enqueue_escalation_check(session, incident.id, now)
 
     if outcome == ReportOutcome.MERGED_RECENTLY_CLOSED:
         await record_admin_alert(

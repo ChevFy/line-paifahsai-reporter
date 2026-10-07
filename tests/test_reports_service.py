@@ -16,7 +16,11 @@ from models import (
     LineUser,
     Report,
 )
-from services.dispatch import JOB_DISPATCH_INCIDENT
+from services.dispatch import (
+    ESCALATION_DELAY,
+    JOB_DISPATCH_INCIDENT,
+    JOB_ESCALATE_INCIDENT,
+)
 from services.ops_date import ops_date_for
 from services.reports import (
     ALERT_REPORT_ON_CLOSED_INCIDENT,
@@ -105,8 +109,12 @@ async def test_first_report_creates_incident_and_enqueues_dispatch(sessionmaker)
 
     assert result.outcome == ReportOutcome.NEW_INCIDENT
     assert await dispatch_job_keys(sessionmaker) == [
-        f"{JOB_DISPATCH_INCIDENT}:{result.incident_id}"
+        f"{JOB_DISPATCH_INCIDENT}:{result.incident_id}:initial"
     ]
+    escalation = await scalar(
+        sessionmaker, sa.select(Job.run_at).where(Job.job_type == JOB_ESCALATE_INCIDENT)
+    )
+    assert escalation == NOW + ESCALATION_DELAY
     assert await alert_types(sessionmaker) == []
     assert await scalar(sessionmaker, sa.select(LineUser.report_count)) == 1
     assert (

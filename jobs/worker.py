@@ -9,7 +9,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from jobs.dispatch import handle_dispatch_incident
-from services.dispatch import JOB_DISPATCH_INCIDENT
+from jobs.escalation import handle_escalate_incident
+from jobs.line_events import JOB_LINE_EVENT, handle_line_event
+from jobs.notify import handle_assignment_summary, handle_incident_closed
+from services.assignments import JOB_ASSIGNMENT_SUMMARY, JOB_INCIDENT_CLOSED
+from services.dispatch import JOB_DISPATCH_INCIDENT, JOB_ESCALATE_INCIDENT
 from services.jobs import (
     PermanentJobError,
     claim_next_job,
@@ -26,8 +30,19 @@ STALE_CHECK_INTERVAL = timedelta(minutes=1)
 JobHandler = Callable[[dict[str, Any], async_sessionmaker], Awaitable[None]]
 
 HANDLERS: dict[str, JobHandler] = {
+    JOB_LINE_EVENT: handle_line_event,
     JOB_DISPATCH_INCIDENT: handle_dispatch_incident,
+    JOB_ESCALATE_INCIDENT: handle_escalate_incident,
+    JOB_ASSIGNMENT_SUMMARY: handle_assignment_summary,
+    JOB_INCIDENT_CLOSED: handle_incident_closed,
 }
+
+_wake: asyncio.Event | None = None
+
+
+def wake_worker() -> None:
+    if _wake is not None:
+        _wake.set()
 
 
 def default_worker_id() -> str:
@@ -78,7 +93,10 @@ async def run_worker(
     stop: asyncio.Event,
     worker_id: str | None = None,
 ) -> None:
+    global _wake
+
     worker_id = worker_id or default_worker_id()
+    _wake = asyncio.Event()
     logger.info("job worker started: worker_id=%s", worker_id)
     next_stale_check = datetime.now(UTC)
 
@@ -96,10 +114,12 @@ async def run_worker(
 
         if not processed:
             try:
-                await asyncio.wait_for(stop.wait(), POLL_INTERVAL_SECONDS)
+                await asyncio.wait_for(_wake.wait(), POLL_INTERVAL_SECONDS)
             except TimeoutError:
                 pass
+            _wake.clear()
 
+    _wake = None
     logger.info("job worker stopped: worker_id=%s", worker_id)
 
 

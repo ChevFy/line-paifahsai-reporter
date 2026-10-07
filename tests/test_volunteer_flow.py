@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from geoalchemy2 import WKTElement
 
 from conftest import MAE_TAENG, PAI, requires_postgis
+from jobs import common as jobs_common
 from jobs import dispatch as dispatch_job
 from models import (
     AdminAlert,
@@ -107,7 +108,7 @@ class FakeLine:
 @pytest.fixture
 def fake_line(monkeypatch):
     line = FakeLine()
-    monkeypatch.setattr(dispatch_job, "get_line_service", lambda: line)
+    monkeypatch.setattr(jobs_common, "get_line_service", lambda: line)
     return line
 
 
@@ -246,8 +247,8 @@ async def test_dispatch_multicasts_only_approved_volunteers_in_district(
 
     assert len(fake_line.calls) == 1
     assert fake_line.calls[0]["to"] == ["UV1", "UV2"]
-    assert fake_line.calls[0]["retry_key"] == dispatch_job.dispatch_retry_key(
-        incident_id, 0
+    assert fake_line.calls[0]["retry_key"] == jobs_common.retry_key(
+        "dispatch", incident_id, "initial", 0
     )
     assert await scalar(sessionmaker, sa.select(IncidentEvent.event_type)) == (
         EVENT_DISPATCHED
@@ -276,7 +277,7 @@ async def test_dispatch_line_failure_propagates_for_retry(sessionmaker, monkeypa
     await add_volunteer(sessionmaker, "UV1")
     incident_id = await add_incident(sessionmaker)
     line = FakeLine(error=TimeoutError("LINE down"))
-    monkeypatch.setattr(dispatch_job, "get_line_service", lambda: line)
+    monkeypatch.setattr(jobs_common, "get_line_service", lambda: line)
 
     with pytest.raises(TimeoutError):
         await dispatch_job.handle_dispatch_incident(

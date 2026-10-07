@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import StrEnum
 
 import sqlalchemy as sa
 from geoalchemy2 import Geometry
@@ -21,13 +22,22 @@ from services.volunteers import approved_line_user_ids_in_district
 logger = logging.getLogger(__name__)
 
 JOB_DISPATCH_INCIDENT = "dispatch_incident"
+JOB_ESCALATE_INCIDENT = "escalate_incident"
+ESCALATION_DELAY = timedelta(minutes=20)
 EVENT_DISPATCHED = "dispatched"
 ALERT_NO_VOLUNTEERS = "incident_no_volunteers"
+
+
+class DispatchReason(StrEnum):
+    INITIAL = "initial"
+    ESCALATION = "escalation"
+    ALL_WITHDRAWN = "all_withdrawn"
 
 
 @dataclass(frozen=True)
 class DispatchTarget:
     incident_id: int
+    reason: DispatchReason
     latitude: float
     longitude: float
     district_code: str
@@ -38,18 +48,39 @@ class DispatchTarget:
     recipients: list[str]
 
 
-async def enqueue_dispatch(session: AsyncSession, incident_id: int) -> bool:
+async def enqueue_dispatch(
+    session: AsyncSession,
+    incident_id: int,
+    reason: DispatchReason = DispatchReason.INITIAL,
+    round_key: str | None = None,
+) -> bool:
+    round_key = round_key or reason.value
     return await enqueue_job(
         session,
         job_type=JOB_DISPATCH_INCIDENT,
+        payload={"incident_id": incident_id, "reason": reason.value, "round": round_key},
+        idempotency_key=f"{JOB_DISPATCH_INCIDENT}:{incident_id}:{round_key}",
+    )
+
+
+async def enqueue_escalation_check(
+    session: AsyncSession,
+    incident_id: int,
+    now: datetime,
+) -> bool:
+    return await enqueue_job(
+        session,
+        job_type=JOB_ESCALATE_INCIDENT,
         payload={"incident_id": incident_id},
-        idempotency_key=f"{JOB_DISPATCH_INCIDENT}:{incident_id}",
+        idempotency_key=f"{JOB_ESCALATE_INCIDENT}:{incident_id}",
+        run_at=now + ESCALATION_DELAY,
     )
 
 
 async def load_dispatch_target(
     session: AsyncSession,
     incident_id: int,
+    reason: DispatchReason = DispatchReason.INITIAL,
 ) -> DispatchTarget | None:
     point = sa.cast(Incident.location, Geometry(geometry_type="POINT", srid=4326))
     statement = (
@@ -79,6 +110,7 @@ async def load_dispatch_target(
     recipients = await approved_line_user_ids_in_district(session, row.district_code)
     return DispatchTarget(
         incident_id=row.id,
+        reason=reason,
         latitude=row.latitude,
         longitude=row.longitude,
         district_code=row.district_code,
@@ -123,12 +155,14 @@ async def record_dispatched(session: AsyncSession, target: DispatchTarget) -> No
             payload={
                 "recipient_count": len(target.recipients),
                 "district_code": target.district_code,
+                "reason": target.reason.value,
             },
         )
     )
     logger.info(
-        "incident dispatched: incident_id=%s district=%s recipients=%s",
+        "incident dispatched: incident_id=%s reason=%s district=%s recipients=%s",
         target.incident_id,
+        target.reason,
         target.district_code,
         len(target.recipients),
     )

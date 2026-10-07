@@ -11,7 +11,7 @@ from api.volunteers import router as volunteers_router
 from config.config import settings
 from core.db import SessionLocal, close_db
 from core.log_config import setup_logging
-from jobs.worker import log_worker_exit, run_worker
+from jobs.worker import log_worker_exit, run_worker, wake_worker
 from line.line_client import close_line_bot_api
 from line.line_id_token import close_id_token_client
 from line.line_webhook import router as line_router
@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     worker.add_done_callback(log_worker_exit)
     yield
     stop_worker.set()
+    wake_worker()
     await worker
     await close_id_token_client()
     await close_line_bot_api()

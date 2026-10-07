@@ -11,8 +11,15 @@ from line.line_flex import (
     parse_postback_data,
     postback_data,
 )
-from services.assignments import AcceptOutcome, AcceptResult
-from services.dispatch import DispatchTarget
+from models import AssignmentStatus
+from services.assignments import (
+    AcceptOutcome,
+    AcceptResult,
+    AssignmentAction,
+    UpdateOutcome,
+    UpdateResult,
+)
+from services.dispatch import DispatchReason, DispatchTarget
 
 pytestmark = pytest.mark.anyio
 
@@ -31,6 +38,7 @@ def target(**overrides) -> DispatchTarget:
         "district_name": "ปาย",
         "province_name": "แม่ฮ่องสอน",
         "description": "ควันขึ้นหลังวัด",
+        "reason": DispatchReason.INITIAL,
         "created_at": datetime(2026, 3, 2, 3, 0, tzinfo=UTC),
         "recipients": ["UV1"],
     }
@@ -52,6 +60,10 @@ def postback_event(data: str, user_id: str = "UV1") -> PostbackEvent:
     )
 
 
+def message_text(message) -> str:
+    return getattr(message, "text", None) or message.alt_text
+
+
 class Recorder:
     def __init__(self, reply_error: Exception | None = None):
         self.replies = []
@@ -66,10 +78,10 @@ def recorder(monkeypatch):
     async def fake_reply(reply_token, messages):
         if rec.reply_error is not None:
             raise rec.reply_error
-        rec.replies.append(messages.text)
+        rec.replies.append(message_text(messages))
 
     async def fake_push(user_id, messages, retry_key=None):
-        rec.pushes.append((user_id, messages.text, retry_key))
+        rec.pushes.append((user_id, message_text(messages), retry_key))
 
     @asynccontextmanager
     async def fake_session():
@@ -186,3 +198,108 @@ async def test_accept_db_error_alerts_admin(recorder, monkeypatch):
     assert [alert["alert_type"] for alert in alerts] == [
         line_handler.EVENT_FAILED_ALERT_TYPE
     ]
+
+
+def use_update(monkeypatch, result: UpdateResult, calls: list | None = None):
+    async def fake_update(session, line_user_id, incident_id, action, now):
+        if calls is not None:
+            calls.append((line_user_id, incident_id, action))
+        return result
+
+    monkeypatch.setattr(line_handler, "update_assignment", fake_update)
+
+
+async def test_accept_reply_has_status_buttons(monkeypatch):
+    sent = []
+
+    async def fake_reply(reply_token, messages):
+        sent.append(messages)
+
+    @asynccontextmanager
+    async def fake_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(line_handler, "reply_message", fake_reply)
+    monkeypatch.setattr(line_handler, "SessionLocal", fake_session)
+    use_accept(monkeypatch, AcceptResult(AcceptOutcome.ACCEPTED, 42, 1))
+
+    await line_handler.handle_event(postback_event("action=accept&incident_id=42"))
+
+    footer = sent[0].to_dict()["contents"]["footer"]["contents"]
+    actions = [parse_postback_data(button["action"]["data"]) for button in footer]
+    assert actions == [("arrived", 42), ("done", 42), ("withdraw", 42)]
+
+
+@pytest.mark.parametrize(
+    ("data", "action"),
+    [
+        ("action=arrived&incident_id=42", AssignmentAction.ARRIVED),
+        ("action=done&incident_id=42", AssignmentAction.DONE),
+        ("action=withdraw&incident_id=42", AssignmentAction.WITHDRAW),
+    ],
+)
+async def test_status_buttons_route_to_update(recorder, monkeypatch, data, action):
+    calls = []
+    use_update(
+        monkeypatch,
+        UpdateResult(UpdateOutcome.UPDATED, 42, action, active_volunteer_count=1),
+        calls,
+    )
+
+    await line_handler.handle_event(postback_event(data))
+
+    assert calls == [("UV1", 42, action)]
+    assert "#42" in recorder.replies[0]
+
+
+async def test_last_done_reply_says_incident_closed(recorder, monkeypatch):
+    use_update(
+        monkeypatch,
+        UpdateResult(
+            UpdateOutcome.UPDATED, 42, AssignmentAction.DONE, incident_closed=True
+        ),
+    )
+
+    await line_handler.handle_event(postback_event("action=done&incident_id=42"))
+
+    assert "ปิด" in recorder.replies[0]
+
+
+async def test_all_withdrawn_reply_says_redispatched(recorder, monkeypatch):
+    use_update(
+        monkeypatch,
+        UpdateResult(
+            UpdateOutcome.UPDATED, 42, AssignmentAction.WITHDRAW, all_withdrawn=True
+        ),
+    )
+
+    await line_handler.handle_event(postback_event("action=withdraw&incident_id=42"))
+
+    assert "ไม่มีใครรับ" in recorder.replies[0]
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(AssignmentStatus.WITHDRAWN, "ฉันขอไป"), (AssignmentStatus.DONE, "เสร็จ")],
+)
+async def test_invalid_transition_reply(recorder, monkeypatch, status, expected):
+    use_update(
+        monkeypatch,
+        UpdateResult(
+            UpdateOutcome.INVALID_TRANSITION,
+            42,
+            AssignmentAction.ARRIVED,
+            assignment_status=status,
+        ),
+    )
+
+    await line_handler.handle_event(postback_event("action=arrived&incident_id=42"))
+
+    assert expected in recorder.replies[0]
+
+
+@pytest.mark.parametrize("reason", list(DispatchReason))
+def test_flex_header_per_dispatch_reason(reason):
+    message = build_incident_alert(target(reason=reason)).to_dict()
+
+    assert "#42" in message["contents"]["header"]["contents"][0]["text"]

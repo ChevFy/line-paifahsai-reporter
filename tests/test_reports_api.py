@@ -5,7 +5,12 @@ from fastapi.testclient import TestClient
 
 from api import reports
 from api.utils_api import app
-from line.line_id_token import InvalidIdTokenError, LineIdentity
+from line.line_id_token import (
+    IdTokenConfigError,
+    IdTokenVerificationUnavailableError,
+    InvalidIdTokenError,
+    LineIdentity,
+)
 from services.reports import ReportOutcome, ReportResult, UnknownDistrictError
 
 AUTH = {"Authorization": "Bearer test-id-token"}
@@ -121,3 +126,71 @@ def test_unexpected_error_returns_500_and_alerts_admin(
     assert_has_emergency_phone(response.json()["detail"])
     assert len(alerts) == 1
     assert alerts[0]["alert_type"] == reports.ALERT_REPORT_FAILED
+
+
+def test_verification_unavailable_returns_503_and_alerts_admin(
+    client, alerts, monkeypatch
+):
+    async def fake_verify(id_token):
+        raise IdTokenVerificationUnavailableError("ConnectTimeout")
+
+    monkeypatch.setattr(reports, "verify_id_token", fake_verify)
+    response = client.post("/reports", json=valid_body(), headers=AUTH)
+
+    assert response.status_code == 503
+    assert_has_emergency_phone(response.json()["detail"])
+    assert [alert["alert_type"] for alert in alerts] == [
+        reports.ALERT_ID_TOKEN_UNAVAILABLE
+    ]
+    assert alerts[0]["dedup_key"] == reports.ALERT_ID_TOKEN_UNAVAILABLE
+
+
+def test_channel_config_error_returns_503_and_alerts_admin(
+    client, alerts, monkeypatch
+):
+    async def fake_verify(id_token):
+        raise IdTokenConfigError("Invalid IdToken Audience.")
+
+    monkeypatch.setattr(reports, "verify_id_token", fake_verify)
+    response = client.post("/reports", json=valid_body(), headers=AUTH)
+
+    assert response.status_code == 503
+    assert_has_emergency_phone(response.json()["detail"])
+    assert [alert["alert_type"] for alert in alerts] == [reports.ALERT_ID_TOKEN_CONFIG]
+
+
+def test_malformed_json_returns_422_with_emergency_phone(client):
+    response = client.post(
+        "/reports",
+        content=b"{not json",
+        headers=AUTH | {"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    assert_has_emergency_phone(response.json()["detail"])
+
+
+def test_cors_preflight_allows_liff_origin(client):
+    response = client.options(
+        "/reports",
+        headers={
+            "Origin": "https://liff.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://liff.example"
+
+
+def test_cors_preflight_rejects_unknown_origin(client):
+    response = client.options(
+        "/reports",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert "access-control-allow-origin" not in response.headers

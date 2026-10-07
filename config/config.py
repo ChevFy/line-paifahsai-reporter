@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     LINE_CHANNEL_ACCESS_TOKEN: str = Field(min_length=1)
     LINE_LOGIN_CHANNEL_ID: str = Field(min_length=1)
     ADMIN_LINE_USER_IDS: list[str] | None = None
+    LIFF_ALLOWED_ORIGINS: list[str] = Field(min_length=1)
 
     NGROK_AUTH_TOKEN: str = ""
     USE_NGROK: bool = False

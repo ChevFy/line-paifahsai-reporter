@@ -1,3 +1,4 @@
+import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -34,6 +35,7 @@ def anyio_backend():
 def target(**overrides) -> DispatchTarget:
     values = {
         "incident_id": 42,
+        "incident_public_id": uuid.UUID("00000000-0000-4000-8000-000000000042"),
         "latitude": 19.36,
         "longitude": 98.44,
         "district_code": "5803",

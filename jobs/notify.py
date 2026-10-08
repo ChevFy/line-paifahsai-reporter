@@ -42,7 +42,7 @@ async def handle_assignment_summary(
     await multicast_in_chunks(
         summary.recipients,
         build_assignment_summary(summary),
-        key_prefix=("summary", incident_id, window),
+        key_prefix=("summary", summary.incident_public_id, window),
     )
     logger.info(
         "assignment summary sent: incident_id=%s volunteers=%s joined=%s "
@@ -76,14 +76,14 @@ async def handle_incident_closed(
     await multicast_in_chunks(
         notice.reporter_ids,
         build_closure_for_reporter(incident_id, notice.district_name),
-        key_prefix=("closed", incident_id, closed_at, "reporters"),
+        key_prefix=("closed", notice.incident_public_id, closed_at, "reporters"),
     )
     await multicast_in_chunks(
         notice.volunteer_ids,
         build_closure_for_volunteer(
             incident_id, notice.district_name, notice.closed_by_name
         ),
-        key_prefix=("closed", incident_id, closed_at, "volunteers"),
+        key_prefix=("closed", notice.incident_public_id, closed_at, "volunteers"),
     )
     logger.info(
         "incident closure notified: incident_id=%s reporters=%s volunteers=%s",

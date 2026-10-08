@@ -79,7 +79,7 @@ async def handle_send_incident_photo(
     await multicast_in_chunks(
         delivery.recipients,
         build_incident_photo(urls[PhotoVariant.FULL], urls[PhotoVariant.PREVIEW]),
-        key_prefix=("incident_photo", incident_id),
+        key_prefix=("incident_photo", delivery.incident_public_id),
     )
     logger.info(
         "incident photo sent: incident_id=%s report_id=%s recipients=%s "

@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass, field
 
 import sqlalchemy as sa
@@ -28,6 +29,7 @@ EVENT_VOLUNTEER_WITHDRAWN = ACTION_EVENTS[AssignmentAction.WITHDRAW]
 @dataclass(frozen=True)
 class AssignmentSummary:
     incident_id: int
+    incident_public_id: uuid.UUID
     district_name: str
     volunteer_names: list[str]
     recipients: list[str]
@@ -38,25 +40,44 @@ class AssignmentSummary:
 @dataclass(frozen=True)
 class ClosureNotice:
     incident_id: int
+    incident_public_id: uuid.UUID
     district_name: str
     reporter_ids: list[str]
     volunteer_ids: list[str]
     closed_by_name: str | None = None
 
 
+@dataclass(frozen=True)
+class IncidentRef:
+    public_id: uuid.UUID
+    status: IncidentStatus
+    district_code: str
+    district_name: str
+
+
 async def load_incident_district(
     session: AsyncSession,
     incident_id: int,
-) -> tuple[IncidentStatus, str, str]:
+) -> IncidentRef:
     statement = (
-        sa.select(Incident.status, Incident.district_code, District.name_th)
+        sa.select(
+            Incident.public_id,
+            Incident.status,
+            Incident.district_code,
+            District.name_th,
+        )
         .join(District, District.code == Incident.district_code)
         .where(Incident.id == incident_id)
     )
     row = (await session.execute(statement)).one_or_none()
     if row is None:
         raise LookupError(f"incident {incident_id} not found")
-    return row.status, row.district_code, row.name_th
+    return IncidentRef(
+        public_id=row.public_id,
+        status=row.status,
+        district_code=row.district_code,
+        district_name=row.name_th,
+    )
 
 
 async def load_window_changes(
@@ -98,10 +119,8 @@ async def load_assignment_summary(
     incident_id: int,
     window: int | None = None,
 ) -> AssignmentSummary | None:
-    status, district_code, district_name = await load_incident_district(
-        session, incident_id
-    )
-    if status not in ACTIVE_INCIDENT_STATUSES:
+    incident = await load_incident_district(session, incident_id)
+    if incident.status not in ACTIVE_INCIDENT_STATUSES:
         return None
 
     assigned = (
@@ -116,7 +135,9 @@ async def load_assignment_summary(
         )
     ).all()
 
-    recipients = await approved_line_user_ids_in_district(session, district_code)
+    recipients = await approved_line_user_ids_in_district(
+        session, incident.district_code
+    )
     for row in assigned:
         if row.line_user_id not in recipients:
             recipients.append(row.line_user_id)
@@ -128,7 +149,8 @@ async def load_assignment_summary(
     )
     return AssignmentSummary(
         incident_id=incident_id,
-        district_name=district_name,
+        incident_public_id=incident.public_id,
+        district_name=incident.district_name,
         volunteer_names=[row.full_name for row in assigned],
         recipients=recipients,
         joined_names=joined,
@@ -141,9 +163,7 @@ async def load_closure_notice(
     incident_id: int,
     closed_by_volunteer_id: int | None = None,
 ) -> ClosureNotice:
-    _, district_code, district_name = await load_incident_district(
-        session, incident_id
-    )
+    incident = await load_incident_district(session, incident_id)
 
     reporter_ids = (
         await session.execute(
@@ -163,7 +183,7 @@ async def load_closure_notice(
     ).scalars().all()
     recipients = list(volunteer_ids)
     for line_user_id in await approved_line_user_ids_in_district(
-        session, district_code
+        session, incident.district_code
     ):
         if line_user_id not in recipients:
             recipients.append(line_user_id)
@@ -179,7 +199,8 @@ async def load_closure_notice(
     )
     return ClosureNotice(
         incident_id=incident_id,
-        district_name=district_name,
+        incident_public_id=incident.public_id,
+        district_name=incident.district_name,
         reporter_ids=list(reporter_ids),
         volunteer_ids=recipients,
         closed_by_name=closed_by_name,

@@ -1,4 +1,5 @@
 import logging
+import uuid
 from dataclasses import dataclass
 
 import sqlalchemy as sa
@@ -25,6 +26,7 @@ JOB_SEND_INCIDENT_PHOTO = "send_incident_photo"
 @dataclass(frozen=True)
 class PhotoDelivery:
     incident_id: int
+    incident_public_id: uuid.UUID
     report_id: int
     image_path: str
     recipients: list[str]
@@ -127,6 +129,7 @@ async def load_photo_delivery(
 
     return PhotoDelivery(
         incident_id=incident_id,
+        incident_public_id=incident.public_id,
         report_id=photo.id,
         image_path=photo.image_path,
         recipients=recipients,

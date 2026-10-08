@@ -46,7 +46,7 @@ async def handle_dispatch_incident(
     await multicast_in_chunks(
         target.recipients,
         build_incident_alert(target),
-        key_prefix=("dispatch", incident_id, round_key),
+        key_prefix=("dispatch", target.incident_public_id, round_key),
     )
 
     async with sessionmaker() as session, session.begin():

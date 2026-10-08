@@ -1,4 +1,5 @@
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -37,6 +38,7 @@ class DispatchReason(StrEnum):
 @dataclass(frozen=True)
 class DispatchTarget:
     incident_id: int
+    incident_public_id: uuid.UUID
     reason: DispatchReason
     latitude: float
     longitude: float
@@ -92,6 +94,7 @@ async def load_dispatch_target(
     statement = (
         sa.select(
             Incident.id,
+            Incident.public_id,
             Incident.status,
             sa.func.ST_Y(point).label("latitude"),
             sa.func.ST_X(point).label("longitude"),
@@ -116,6 +119,7 @@ async def load_dispatch_target(
     recipients = await approved_line_user_ids_in_district(session, row.district_code)
     return DispatchTarget(
         incident_id=row.id,
+        incident_public_id=row.public_id,
         reason=reason,
         latitude=row.latitude,
         longitude=row.longitude,

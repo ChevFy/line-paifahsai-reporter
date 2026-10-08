@@ -247,8 +247,11 @@ async def test_dispatch_multicasts_only_approved_volunteers_in_district(
 
     assert len(fake_line.calls) == 1
     assert fake_line.calls[0]["to"] == ["UV1", "UV2"]
+    public_id = await scalar(
+        sessionmaker, sa.select(Incident.public_id).where(Incident.id == incident_id)
+    )
     assert fake_line.calls[0]["retry_key"] == jobs_common.retry_key(
-        "dispatch", incident_id, "initial", 0
+        "dispatch", public_id, "initial", 0
     )
     assert await scalar(sessionmaker, sa.select(IncidentEvent.event_type)) == (
         EVENT_DISPATCHED

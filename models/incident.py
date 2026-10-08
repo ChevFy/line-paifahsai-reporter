@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime
 from enum import StrEnum
 
@@ -22,6 +23,9 @@ class Incident(Base):
     __tablename__ = "incidents"
 
     id: Mapped[int] = mapped_column(sa.BigInteger, sa.Identity(), primary_key=True)
+    public_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, server_default=sa.text("gen_random_uuid()"), unique=True
+    )
     location: Mapped[WKBElement] = mapped_column(
         Geography(geometry_type="POINT", srid=4326)
     )

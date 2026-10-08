@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from models import Report
+from services.photo_delivery import schedule_photo_after_upload
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ async def save_report_image(
                 .returning(Report.id)
             )
         ).scalar_one_or_none()
+        if attached is not None:
+            await schedule_photo_after_upload(session, report.incident_id)
     if attached is None:
         logger.warning(
             "report image attached concurrently, stored object unused: "

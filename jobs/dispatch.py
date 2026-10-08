@@ -1,20 +1,19 @@
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from config.config import settings
 from jobs.common import multicast_in_chunks, require_incident_id
 from line.line_flex import build_incident_alert
+from models import Incident
 from services.dispatch import (
     DispatchReason,
     load_dispatch_target,
     record_dispatched,
     record_no_volunteers,
 )
-from services.incident_photos import build_photo_page_url
 from services.jobs import PermanentJobError
+from services.photo_delivery import schedule_photo_after_dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -46,17 +45,11 @@ async def handle_dispatch_incident(
 
     await multicast_in_chunks(
         target.recipients,
-        build_incident_alert(
-            target,
-            build_photo_page_url(
-                settings.PUBLIC_BASE_URL,
-                settings.PHOTO_LINK_SECRET,
-                incident_id,
-                datetime.now(UTC),
-            ),
-        ),
+        build_incident_alert(target),
         key_prefix=("dispatch", incident_id, round_key),
     )
 
     async with sessionmaker() as session, session.begin():
+        await session.get(Incident, incident_id, with_for_update=True)
         await record_dispatched(session, target)
+        await schedule_photo_after_dispatch(session, incident_id)

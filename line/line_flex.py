@@ -7,6 +7,7 @@ from linebot.v3.messaging import (
     FlexButton,
     FlexMessage,
     FlexText,
+    ImageMessage,
     PostbackAction,
     TextMessage,
     URIAction,
@@ -64,7 +65,7 @@ def map_url(latitude: float, longitude: float) -> str:
     )
 
 
-def build_incident_alert(target: DispatchTarget, photos_url: str) -> FlexMessage:
+def build_incident_alert(target: DispatchTarget) -> FlexMessage:
     reported_at = target.created_at.astimezone(BANGKOK).strftime("%H:%M น.")
     location = f"อ.{target.district_name} จ.{target.province_name}"
 
@@ -123,10 +124,6 @@ def build_incident_alert(target: DispatchTarget, photos_url: str) -> FlexMessage
                         uri=map_url(target.latitude, target.longitude),
                     ),
                 ),
-                FlexButton(
-                    style="secondary",
-                    action=URIAction(label="ดูรูปจากผู้แจ้ง", uri=photos_url),
-                ),
             ],
         ),
     )
@@ -134,6 +131,13 @@ def build_incident_alert(target: DispatchTarget, photos_url: str) -> FlexMessage
     return FlexMessage(
         alt_text=f"{header} {location} กดเพื่อรับงาน",
         contents=bubble,
+    )
+
+
+def build_incident_photo(full_url: str, preview_url: str) -> ImageMessage:
+    return ImageMessage(
+        original_content_url=full_url,
+        preview_image_url=preview_url,
     )
 
 

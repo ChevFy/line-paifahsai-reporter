@@ -23,6 +23,7 @@ from services.incident_photos import (
     list_incident_photos,
     verify_incident_link,
 )
+from services.photo_renditions import PhotoVariant, rendition_key
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ async def incident_photo(
     report_id: int,
     expires: int = Query(),
     sig: str = Query(),
+    variant: PhotoVariant | None = None,
 ) -> Response:
     status = check_link(incident_id, expires, sig)
     if status != LinkStatus.VALID:
@@ -113,6 +115,8 @@ async def incident_photo(
         key = await find_incident_photo_key(session, incident_id, report_id)
     if key is None:
         return Response(status_code=404, headers=PRIVATE_HEADERS)
+    if variant is not None:
+        key = rendition_key(key, variant)
 
     payload = {"incident_id": incident_id, "report_id": report_id, "key": key}
     try:

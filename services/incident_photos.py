@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Report
+from services.photo_renditions import PhotoVariant
 
 PHOTO_LINK_TTL = timedelta(days=3)
 
@@ -44,6 +45,22 @@ def build_photo_page_url(
     expires = int((now + PHOTO_LINK_TTL).timestamp())
     query = link_query(secret, incident_id, expires)
     return f"{base_url.rstrip('/')}/incidents/{incident_id}/photos?{query}"
+
+
+def build_photo_url(
+    base_url: str,
+    secret: str,
+    incident_id: int,
+    report_id: int,
+    now: datetime,
+    variant: PhotoVariant,
+) -> str:
+    expires = int((now + PHOTO_LINK_TTL).timestamp())
+    query = link_query(secret, incident_id, expires)
+    return (
+        f"{base_url.rstrip('/')}/incidents/{incident_id}/photos/{report_id}"
+        f"?{query}&variant={variant.value}"
+    )
 
 
 def verify_incident_link(

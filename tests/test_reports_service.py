@@ -4,9 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
+from conftest import PAI, requires_postgis
 from geoalchemy2 import WKTElement
 
-from conftest import PAI, requires_postgis
 from models import (
     AdminAlert,
     Incident,
@@ -25,6 +25,7 @@ from services.ops_date import ops_date_for
 from services.reports import (
     ALERT_REPORT_ON_CLOSED_INCIDENT,
     ALERT_STALE_ACTIVE_INCIDENT,
+    DEDUP_RADIUS_METERS,
     DEDUP_STALE_ACTIVE_AFTER,
     ReporterBlockedError,
     ReportOutcome,
@@ -127,7 +128,7 @@ async def test_first_report_creates_incident_and_enqueues_dispatch(sessionmaker)
 
 async def test_report_within_radius_merges(sessionmaker):
     first = await submit(sessionmaker, submission())
-    second = await submit(sessionmaker, submission(north_meters=950, user_id="U2"))
+    second = await submit(sessionmaker, submission(north_meters=DEDUP_RADIUS_METERS - 50, user_id="U2"))
 
     assert second.outcome == ReportOutcome.MERGED
     assert second.incident_id == first.incident_id
@@ -136,7 +137,7 @@ async def test_report_within_radius_merges(sessionmaker):
 
 async def test_report_outside_radius_creates_new_incident(sessionmaker):
     first = await submit(sessionmaker, submission())
-    second = await submit(sessionmaker, submission(north_meters=1100, user_id="U2"))
+    second = await submit(sessionmaker, submission(north_meters=DEDUP_RADIUS_METERS + 100, user_id="U2"))
 
     assert second.outcome == ReportOutcome.NEW_INCIDENT
     assert second.incident_id != first.incident_id
@@ -183,7 +184,7 @@ async def test_incident_closed_beyond_window_is_new_incident(sessionmaker):
 async def test_active_incident_preferred_over_closer_closed_one(sessionmaker):
     await add_incident(sessionmaker, IncidentStatus.CLOSED, closed_ago=timedelta(hours=1))
     active_id = await add_incident(
-        sessionmaker, IncidentStatus.IN_PROGRESS, north_meters=500
+        sessionmaker, IncidentStatus.IN_PROGRESS, north_meters=DEDUP_RADIUS_METERS - 100
     )
 
     result = await submit(sessionmaker, submission())

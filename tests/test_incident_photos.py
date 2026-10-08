@@ -170,6 +170,37 @@ def test_image_served_from_storage(client, monkeypatch):
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
+@pytest.mark.parametrize(
+    ("variant", "expected_key"),
+    [
+        ("full", "reports/10/a.heic.full.jpg"),
+        ("preview", "reports/10/a.heic.preview.jpg"),
+    ],
+)
+def test_variant_serves_line_rendition(client, monkeypatch, variant, expected_key):
+    requested = []
+    use_key(monkeypatch, "reports/10/a.heic")
+
+    def fetch(key):
+        requested.append(key)
+        return JPEG, "image/jpeg"
+
+    use_storage(monkeypatch, fetch)
+
+    response = client.get(f"/incidents/42/photos/10?{valid_query()}&variant={variant}")
+
+    assert response.status_code == 200
+    assert requested == [expected_key]
+
+
+def test_unknown_variant_rejected(client, monkeypatch):
+    use_key(monkeypatch, "reports/10/a.jpg")
+
+    response = client.get(f"/incidents/42/photos/10?{valid_query()}&variant=raw")
+
+    assert response.status_code == 422
+
+
 def test_image_rejects_bad_signature(client, monkeypatch):
     use_key(monkeypatch, "reports/10/a.jpg")
     use_storage(monkeypatch, lambda key: (JPEG, "image/jpeg"))

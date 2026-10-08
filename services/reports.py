@@ -26,7 +26,7 @@ from services.ops_date import ops_date_for
 
 logger = logging.getLogger(__name__)
 
-DEDUP_RADIUS_METERS = 1000
+DEDUP_RADIUS_METERS = 500
 DEDUP_CLOSED_WINDOW = timedelta(hours=6)
 DEDUP_STALE_ACTIVE_AFTER = timedelta(hours=6)
 DEDUP_LOCK_NAME = "incident_dedup"

@@ -56,28 +56,19 @@
   background: #f2f4f7;
 }
 
-.back-button,
-.brand-icon {
+.back-button {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
   width: 36px;
   height: 36px;
   border-radius: 12px;
-}
-
-.back-button {
   padding: 0;
   color: #475467;
   background: transparent;
 }
 
 .back-button:hover { background: #f2f4f7; }
-
-.brand-icon {
-  color: #fff;
-  background: linear-gradient(135deg, #f97316, #dc2626);
-}
 
 .report-page {
   padding: 24px 0 48px;
@@ -169,8 +160,6 @@ textarea { resize: vertical; }
 .image-preview img { width: 100%; height: 100%; object-fit: cover; }
 .remove-image-button { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.65); }
 .selected-file { display: flex; align-items: center; gap: 5px; margin: 0; color: #667085; font-size: 0.75rem; }
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .submit-button,
 button {
@@ -220,20 +209,6 @@ input[aria-invalid="true"] { border-color: #f04438; }
 .volunteer-submit { background: #167c65; box-shadow: 0 4px 12px rgba(22, 124, 101, 0.18); }
 .loading-text { display: flex; align-items: center; justify-content: center; gap: 8px; color: #667085; }
 .inline-retry { margin-top: 8px; padding: 8px 14px; font-size: 0.85rem; }
-
-.status-badge {
-  display: inline-block;
-  margin: 0;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.status-pending { background: #fffaeb; color: #b54708; }
-.status-approved { background: #ecfdf3; color: #067647; }
-.status-rejected,
-.status-suspended { background: #fef3f2; color: #b42318; }
 
 .volunteer-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 16px 0 0; font-size: 0.875rem; }
 .volunteer-details dt { color: #667085; }

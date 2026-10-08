@@ -1,15 +1,14 @@
 import { API_BASE_URL } from "../config/api";
 import liff from "../../liff";
-import { getApiErrorMessage } from "../utils/api-error";
+import { getApiError } from "../utils/api-error";
+import { AppError } from "../utils/app-error";
 import type { District, ReportCreate, ReportResponse } from "../types/report";
 
 async function request(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
   } catch {
-    throw new Error(
-      "เชื่อมต่อ backend ไม่ได้ กรุณาตรวจสอบว่า backend เปิดอยู่ และตั้งค่า VITE_BACKEND_API ถูกต้อง",
-    );
+    throw new AppError("network");
   }
 }
 
@@ -19,7 +18,7 @@ async function authenticatedRequest(
 ): Promise<Response> {
   const token = liff.getIDToken();
   if (!token) {
-    throw new Error("ไม่พบการเข้าสู่ระบบ LINE กรุณาลองใหม่อีกครั้ง");
+    throw new AppError("notLoggedIn");
   }
 
   return request(`${API_BASE_URL}${path}`, {
@@ -34,7 +33,7 @@ async function authenticatedRequest(
 export async function getDistricts(): Promise<District[]> {
   const response = await request(`${API_BASE_URL}/districts`);
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response, "โหลดรายชื่ออำเภอไม่สำเร็จ"));
+    throw await getApiError(response, "loadDistricts");
   }
 
   const districts = (await response.json()) as Array<{
@@ -57,7 +56,7 @@ export async function submitReport(payload: ReportCreate): Promise<ReportRespons
   });
 
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response, "ส่งรายงานไม่สำเร็จ"));
+    throw await getApiError(response, "submit");
   }
 
   return (await response.json()) as ReportResponse;
@@ -72,6 +71,6 @@ export async function uploadReportImage(reportId: string, image: File): Promise<
   });
 
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response, "อัปโหลดรูปไม่สำเร็จ"));
+    throw await getApiError(response, "upload");
   }
 }

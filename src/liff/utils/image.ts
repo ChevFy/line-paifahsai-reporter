@@ -2,16 +2,18 @@ import {
   MAX_COMPRESSED_IMAGE_SIZE_BYTES,
   MAX_IMAGE_SIZE_BYTES,
 } from "../config/api";
+import { AppError } from "./app-error";
+import type { ErrorCode } from "./app-error";
 
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-export function validateImage(file: File): string | null {
+export function validateImage(file: File): ErrorCode | null {
   if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
-    return "กรุณาเลือกไฟล์ JPG, PNG หรือ WebP";
+    return "imageType";
   }
 
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    return "รูปภาพต้องมีขนาดไม่เกิน 10 MB";
+    return "imageSize";
   }
 
   return null;
@@ -27,7 +29,7 @@ export async function compressImage(file: File): Promise<File> {
 
   const context = canvas.getContext("2d");
   if (!context) {
-    throw new Error("ไม่สามารถเตรียมรูปภาพสำหรับอัปโหลดได้");
+    throw new AppError("imagePrepare");
   }
 
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -37,7 +39,7 @@ export async function compressImage(file: File): Promise<File> {
   });
 
   if (compressedFile.size > MAX_COMPRESSED_IMAGE_SIZE_BYTES) {
-    throw new Error("ไม่สามารถลดขนาดรูปภาพให้ต่ำกว่า 5 MB ได้");
+    throw new AppError("imageTooLarge");
   }
 
   return compressedFile;
@@ -53,7 +55,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
     };
     image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(new Error("ไม่สามารถอ่านรูปภาพนี้ได้"));
+      reject(new AppError("imageRead"));
     };
     image.src = objectUrl;
   });
@@ -62,7 +64,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
 function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("ไม่สามารถบีบอัดรูปภาพได้"))),
+      (blob) => (blob ? resolve(blob) : reject(new AppError("imageCompress"))),
       type,
       0.82,
     );

@@ -39,6 +39,23 @@
   font-size: 0.75rem;
 }
 
+.language-switcher {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 8px 10px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  color: #344054;
+  background: #fff;
+  font-size: 0.75rem;
+}
+
+.language-switcher:hover {
+  background: #f2f4f7;
+}
+
 .back-button,
 .brand-icon {
   display: grid;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, MapPin, Navigation } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { useLanguage } from "../hooks/useLanguage";
 
 type Location = {
   latitude: number;
@@ -22,14 +23,17 @@ const locationIcon = L.divIcon({
   iconAnchor: [21, 38],
 });
 
+type LocationErrorKey = "unsupported" | "permissionDenied" | "unavailable";
+
 export default function LocationMap({ value, onChange }: LocationMapProps) {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const initialValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const [isLocating, setIsLocating] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<LocationErrorKey | null>(null);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -75,7 +79,7 @@ export default function LocationMap({ value, onChange }: LocationMapProps) {
 
   function selectCurrentLocation() {
     if (!navigator.geolocation) {
-      setLocationError("อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง");
+      setLocationError("unsupported");
       return;
     }
 
@@ -100,9 +104,7 @@ export default function LocationMap({ value, onChange }: LocationMapProps) {
       },
       (error) => {
         setLocationError(
-          error.code === error.PERMISSION_DENIED
-            ? "กรุณาอนุญาตการเข้าถึงตำแหน่ง เพื่อใช้ฟังก์ชันนี้"
-            : "ไม่สามารถหาตำแหน่งปัจจุบันได้ กรุณาลองอีกครั้ง",
+          error.code === error.PERMISSION_DENIED ? "permissionDenied" : "unavailable",
         );
         setIsLocating(false);
       },
@@ -119,10 +121,10 @@ export default function LocationMap({ value, onChange }: LocationMapProps) {
         disabled={isLocating}
       >
         {isLocating ? <Loader2 className="spin" size={16} /> : <Navigation size={16} />}
-        {isLocating ? "กำลังระบุตำแหน่ง..." : "ใช้ GPS ปัจจุบัน"}
+        {isLocating ? t.location.locating : t.location.useGps}
       </button>
       <div className="location-map-wrap">
-        <div className="location-map" ref={containerRef} aria-label="แผนที่เลือกจุดเกิดเหตุ" />
+        <div className="location-map" ref={containerRef} aria-label={t.location.mapLabel} />
         {value && (
           <div className="map-coordinates">
             <MapPin size={13} />
@@ -130,7 +132,7 @@ export default function LocationMap({ value, onChange }: LocationMapProps) {
           </div>
         )}
       </div>
-      {locationError && <p className="error-text" role="alert">{locationError}</p>}
+      {locationError && <p className="error-text" role="alert">{t.location[locationError]}</p>}
     </>
   );
 }

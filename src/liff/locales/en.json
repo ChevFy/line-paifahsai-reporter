@@ -1,0 +1,69 @@
+{
+  "app": {
+    "loading": "Preparing the form..."
+  },
+  "language": {
+    "thai": "ไทย",
+    "english": "English",
+    "switchTo": "Switch to Thai"
+  },
+  "header": {
+    "title": "Report a Wildfire",
+    "subtitle": "Pai District hotspot reporting"
+  },
+  "alert": {
+    "title": "Please report a wildfire as soon as you see one",
+    "description": "Your report will be sent to local firefighters immediately. No registration required."
+  },
+  "location": {
+    "title": "Incident location",
+    "required": "* Required",
+    "scope": "Service area: Pai District, Mae Hong Son",
+    "help": "Tap the map to place a pin, or use GPS to select your current location",
+    "useGps": "Use current GPS location",
+    "locating": "Finding your location...",
+    "selected": "Location selected",
+    "mapLabel": "Incident location map",
+    "unsupported": "This device does not support location services",
+    "permissionDenied": "Please allow location access to use this feature",
+    "unavailable": "Could not find your current location. Please try again"
+  },
+  "report": {
+    "details": "Additional details",
+    "placeholder": "For example: where did you see smoke, and are there homes or communities nearby?",
+    "submit": "Submit report",
+    "submitting": "Submitting report...",
+    "noRegistration": "No registration required. Your identity is verified through LINE."
+  },
+  "image": {
+    "title": "Photo",
+    "optional": "Optional",
+    "choose": "Tap to take a photo or choose from your library",
+    "hint": "JPG, PNG, or WebP up to 10 MB",
+    "preview": "Selected photo preview",
+    "remove": "Remove photo"
+  },
+  "success": {
+    "eyebrow": "Report submitted",
+    "title": "Thank you for reporting the wildfire",
+    "emergency": "For emergencies, call",
+    "uploadFailed": "Your report was submitted, but the photo was not uploaded",
+    "retryUpload": "Retry photo upload",
+    "uploading": "Uploading photo...",
+    "reportNumber": "Report number:"
+  },
+  "errors": {
+    "submit": "Could not submit the report",
+    "upload": "Could not upload the photo",
+    "loadDistricts": "Could not load the district list",
+    "network": "Could not connect to the server. Please check your internet connection and try again",
+    "notLoggedIn": "LINE login not found. Please try again",
+    "liffInit": "Could not open LIFF",
+    "imageType": "Please choose a JPG, PNG, or WebP file",
+    "imageSize": "Photo must be 10 MB or smaller",
+    "imagePrepare": "Could not prepare the photo for upload",
+    "imageTooLarge": "Could not reduce the photo below 5 MB",
+    "imageRead": "Could not read this photo",
+    "imageCompress": "Could not compress the photo"
+  }
+}

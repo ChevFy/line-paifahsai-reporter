@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Camera, ImageIcon, X } from "lucide-react";
+import { useLanguage } from "../hooks/useLanguage";
 
 type ImagePickerProps = {
   file: File | null;
@@ -8,6 +9,7 @@ type ImagePickerProps = {
 };
 
 export default function ImagePicker({ file, onChange, disabled }: ImagePickerProps) {
+  const { t } = useLanguage();
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
 
   useEffect(() => {
@@ -20,18 +22,18 @@ export default function ImagePicker({ file, onChange, disabled }: ImagePickerPro
     <div className="image-picker">
       <div className="section-heading">
         <Camera size={16} />
-        <span>รูปภาพ</span>
-        <small>ไม่บังคับ</small>
+        <span>{t.image.title}</span>
+        <small>{t.image.optional}</small>
       </div>
       {previewUrl ? (
         <div className="image-preview">
-          <img src={previewUrl} alt="ตัวอย่างรูปภาพที่เลือก" />
+          <img src={previewUrl} alt={t.image.preview} />
           <button
             type="button"
             className="remove-image-button"
             onClick={() => onChange(null)}
             disabled={disabled}
-            aria-label="ลบรูปภาพ"
+            aria-label={t.image.remove}
           >
             <X size={14} />
           </button>
@@ -39,8 +41,8 @@ export default function ImagePicker({ file, onChange, disabled }: ImagePickerPro
       ) : (
         <label className="image-dropzone">
           <Camera size={30} />
-          <span>แตะเพื่อถ่ายรูปหรือเลือกจากคลัง</span>
-          <small>JPG, PNG หรือ WebP ขนาดไม่เกิน 10 MB</small>
+          <span>{t.image.choose}</span>
+          <small>{t.image.hint}</small>
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp"

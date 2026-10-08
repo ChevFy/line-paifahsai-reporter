@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { AdminApp } from "./App";
@@ -15,6 +15,12 @@ vi.mock("./services/auth-service", () => ({ getCurrentAdmin, login, logout }));
 
 const { listDistricts } = vi.hoisted(() => ({ listDistricts: vi.fn() }));
 vi.mock("./services/district-service", () => ({ listDistricts }));
+
+const { listActiveIncidents } = vi.hoisted(() => ({ listActiveIncidents: vi.fn() }));
+vi.mock("./services/incident-service", () => ({ listActiveIncidents }));
+
+// Leaflet needs real layout; the map page is only checked for routing here
+vi.mock("./components/IncidentMap", () => ({ default: () => null }));
 
 // volunteer-service is kept real (fetch is stubbed) so that a 401 travels
 // through adminRequest -> AuthProvider's unauthorized handler like in production.
@@ -58,6 +64,12 @@ async function logIn() {
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   listDistricts.mockResolvedValue([]);
+  listActiveIncidents.mockResolvedValue({
+    generated_at: "2026-10-09T03:00:00Z",
+    incidents: [],
+    truncated: false,
+    emergency_phone: "1362",
+  });
   fetchMock.mockImplementation(async () => jsonResponse(emptyPage));
 });
 
@@ -130,6 +142,44 @@ describe("AdminApp", () => {
     renderAt("/nope");
     expect(await screen.findByRole("heading", { name: "จิตอาสา" })).toBeInTheDocument();
     expect(location()).toBe("/volunteers");
+  });
+
+  it("renders the incidents map page at /map, keeping ?district=", async () => {
+    getCurrentAdmin.mockResolvedValue(admin);
+    renderAt("/map?district=5803");
+    expect(await screen.findByRole("heading", { name: "เหตุที่กำลังเกิด" })).toBeInTheDocument();
+    expect(location()).toBe("/map?district=5803");
+    await waitFor(() => expect(listActiveIncidents).toHaveBeenCalledWith("5803", expect.any(AbortSignal)));
+    expect(screen.getByRole("link", { name: "แผนที่เหตุ" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("an unauthenticated visit to /map goes to /login and returns to /map after login", async () => {
+    getCurrentAdmin.mockResolvedValue(null);
+    login.mockResolvedValue(admin);
+    renderAt("/map");
+    await screen.findByLabelText("ชื่อผู้ใช้");
+    expect(location()).toBe("/login");
+    expect(listActiveIncidents).not.toHaveBeenCalled();
+
+    await logIn();
+    expect(await screen.findByRole("heading", { name: "เหตุที่กำลังเกิด" })).toBeInTheDocument();
+    expect(location()).toBe("/map");
+  });
+
+  it("the main nav links to แผนที่เหตุ and จิตอาสา", async () => {
+    getCurrentAdmin.mockResolvedValue(admin);
+    renderAt("/volunteers");
+    await screen.findByRole("heading", { name: "จิตอาสา" });
+    const nav = screen.getByRole("navigation", { name: "เมนูหลัก" });
+    const mapLink = within(nav).getByRole("link", { name: "แผนที่เหตุ" });
+    expect(mapLink).toHaveAttribute("href", "/map");
+    expect(mapLink).not.toHaveAttribute("aria-current");
+    expect(within(nav).getByRole("link", { name: "จิตอาสา" })).toHaveAttribute("aria-current", "page");
+
+    await userEvent.click(mapLink);
+    expect(await screen.findByRole("heading", { name: "เหตุที่กำลังเกิด" })).toBeInTheDocument();
+    expect(location()).toBe("/map");
+    expect(mapLink).toHaveAttribute("aria-current", "page");
   });
 
   it("a signed-in admin visiting /login is sent to /volunteers", async () => {

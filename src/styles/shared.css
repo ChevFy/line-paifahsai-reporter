@@ -23,7 +23,9 @@
   font-weight: 700;
 }
 
-.status-pending { background: #fffaeb; color: #b54708; }
+.status-pending,
+.status-in_progress { background: #fffaeb; color: #b54708; }
 .status-approved { background: #ecfdf3; color: #067647; }
 .status-rejected,
-.status-suspended { background: #fef3f2; color: #b42318; }
+.status-suspended,
+.status-open { background: #fef3f2; color: #b42318; }

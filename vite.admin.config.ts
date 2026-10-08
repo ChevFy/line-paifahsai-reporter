@@ -10,8 +10,8 @@ const backend = "http://127.0.0.1:8000";
 // SameSite=Strict with Path=/admin, so page routes must never start with /admin.
 //
 // The proxy below only exists in dev/preview. In production, serve dist-admin/
-// behind the same reverse proxy as the backend: forward /admin/* and /districts
-// to the backend and fall back every other path to index.html.
+// behind the same reverse proxy as the backend: forward /admin/*, /districts and
+// /incidents/active to the backend and fall back every other path to index.html.
 export default defineConfig({
   root: fileURLToPath(new URL("./src/app", import.meta.url)),
   envDir: projectRoot,
@@ -22,6 +22,7 @@ export default defineConfig({
     proxy: {
       "/admin": backend,
       "/districts": backend,
+      "/incidents/active": backend,
     },
   },
   preview: {

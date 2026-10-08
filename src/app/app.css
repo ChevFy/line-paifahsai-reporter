@@ -139,6 +139,7 @@ fieldset { display: grid; gap: 16px; padding: 0; margin: 0; border: 0; }
 }
 
 .error-box p,
+.notice-box p,
 .success-box p { margin: 0; }
 .error-box button { align-self: center; margin-left: auto; padding: 6px 12px; }
 .error-box { border: 1px solid #fecdca; background: #fef3f2; color: #b42318; }
@@ -249,6 +250,89 @@ fieldset { display: grid; gap: 16px; padding: 0; margin: 0; border: 0; }
   font-size: 0.875rem;
 }
 
+/* Incidents map */
+
+.incidents-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.incident-map {
+  min-height: 520px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.incident-marker { background: transparent; border: 0; }
+
+.incident-pin {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  box-shadow: 0 3px 10px rgba(16, 24, 40, 0.3);
+}
+
+.incident-pin-open { background: #dc2626; }
+.incident-pin-in_progress { background: #b54708; border-style: dashed; }
+.incident-pin.selected { outline: 3px solid #167c65; outline-offset: 2px; }
+
+.incident-list {
+  max-height: 520px;
+  overflow-y: auto;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+}
+
+.incident-list ul { margin: 0; padding: 0; list-style: none; }
+
+.incident-list li {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid #f2f4f7;
+}
+
+.incident-item {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  justify-items: start;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #101828;
+  font-weight: 400;
+  text-align: left;
+}
+
+.incident-item:hover { background: #f8fafc; }
+.incident-item.selected { background: #ecfdf6; }
+.incident-item .muted { margin: 0; font-size: 0.8rem; }
+
+.incident-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.incident-map-link {
+  display: grid;
+  place-items: center;
+  padding: 0 14px;
+  color: #167c65;
+}
+
+.incident-map-link:hover { background: #f8fafc; }
+
 /* Confirm dialog */
 
 .dialog-backdrop {
@@ -302,6 +386,11 @@ fieldset { display: grid; gap: 16px; padding: 0; margin: 0; border: 0; }
 .login-card .error-box,
 .login-card .notice-box { margin: 0; }
 .login-submit { width: 100%; padding: 14px; }
+
+@media (max-width: 900px) {
+  .incidents-layout { grid-template-columns: 1fr; }
+  .incident-map { min-height: 360px; }
+}
 
 @media (max-width: 640px) {
   .admin-header-inner,

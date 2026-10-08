@@ -4,6 +4,7 @@ import AdminLayout from "./components/AdminLayout";
 import RequireAuth from "./components/RequireAuth";
 import { AuthProvider } from "./hooks/AuthProvider";
 import { useAuth } from "./hooks/useAuth";
+import IncidentsMapPage from "./pages/IncidentsMapPage";
 import LoginPage from "./pages/LoginPage";
 import VolunteersPage from "./pages/VolunteersPage";
 
@@ -62,6 +63,7 @@ export function AdminRoutes() {
       >
         <Route index element={<Navigate to="/volunteers" replace />} />
         <Route path="volunteers" element={<VolunteersPage />} />
+        <Route path="map" element={<IncidentsMapPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

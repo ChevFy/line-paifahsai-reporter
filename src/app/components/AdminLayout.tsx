@@ -33,6 +33,7 @@ export default function AdminLayout() {
             <p>ระบบแจ้งเหตุไฟป่า อ.ปาย</p>
           </div>
           <nav className="admin-nav" aria-label="เมนูหลัก">
+            <NavLink to="/map">แผนที่เหตุ</NavLink>
             <NavLink to="/volunteers">จิตอาสา</NavLink>
           </nav>
           <div className="admin-user">

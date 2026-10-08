@@ -42,3 +42,22 @@ export type VolunteerFilters = {
   limit: number;
   offset: number;
 };
+
+export type IncidentStatus = "open" | "in_progress";
+
+export type ActiveIncident = {
+  id: number;
+  latitude: number;
+  longitude: number;
+  district_code: string;
+  status: IncidentStatus;
+  report_count: number;
+  created_at: string;
+};
+
+export type ActiveIncidentList = {
+  generated_at: string;
+  incidents: ActiveIncident[];
+  truncated: boolean;
+  emergency_phone: string;
+};

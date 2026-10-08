@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { AlertCircle, Flame, MapPin } from "lucide-react";
 import LocationMap from "../components/LocationMap";
 import ImagePicker from "../components/ImagePicker";
-import LanguageSwitcher from "../components/LanguageSwitcher";
+import PageShell from "../components/PageShell";
+import { PAI_DISTRICT_CODE } from "../config/api";
 import { submitReport, uploadReportImage } from "../services/report-service";
 import type { ReportResponse } from "../types/report";
 import { compressImage, validateImage } from "../utils/image";
@@ -12,7 +13,6 @@ import type { DisplayError } from "../utils/app-error";
 import { useLanguage } from "../hooks/useLanguage";
 
 type Location = { latitude: number; longitude: number };
-const PAI_DISTRICT_CODE = "5803";
 
 function createRequestId() {
   return crypto.randomUUID();
@@ -95,7 +95,7 @@ export default function ReportPage() {
 
   if (report) {
     return (
-      <PageShell>
+      <PageShell title={t.header.title} subtitle={t.header.subtitle}>
         <section className="success-card" role="status">
           <p className="eyebrow">{t.success.eyebrow}</p>
           <h2>{t.success.title}</h2>
@@ -119,7 +119,7 @@ export default function ReportPage() {
   }
 
   return (
-    <PageShell>
+    <PageShell title={t.header.title} subtitle={t.header.subtitle}>
       <div className="emergency-banner">
         <p>{t.alert.title}</p>
         <span>{t.alert.description}</span>
@@ -169,27 +169,5 @@ export default function ReportPage() {
         <p className="form-note">{t.report.noRegistration}</p>
       </form>
     </PageShell>
-  );
-}
-
-function PageShell({ children }: { children: ReactNode }) {
-  const { t } = useLanguage();
-
-  return (
-    <div className="report-shell">
-      <header className="report-header">
-        <div className="report-header-inner">
-          <div className="brand-icon" aria-hidden="true">
-            <Flame size={20} />
-          </div>
-          <div>
-            <h1>{t.header.title}</h1>
-            <p>{t.header.subtitle}</p>
-          </div>
-          <LanguageSwitcher />
-        </div>
-      </header>
-      <main className="report-page">{children}</main>
-    </div>
   );
 }

@@ -2,7 +2,6 @@ from models.admin_alert import AdminAlert, AlertSeverity
 from models.admin_user import AdminSession, AdminUser
 from models.assignment import Assignment, AssignmentStatus
 from models.base import Base
-from models.daily_report import DailyReport
 from models.district import District
 from models.incident import ACTIVE_INCIDENT_STATUSES, Incident, IncidentStatus
 from models.incident_event import ActorType, IncidentEvent
@@ -21,7 +20,6 @@ __all__ = [
     "Assignment",
     "AssignmentStatus",
     "Base",
-    "DailyReport",
     "District",
     "Incident",
     "IncidentEvent",

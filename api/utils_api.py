@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.admin_auth import router as admin_auth_router
+from api.admin_volunteers import router as admin_volunteers_router
 from api.districts import router as districts_router
 from api.errors import register_error_handlers
 from api.incident_photos import router as incident_photos_router
@@ -58,6 +60,8 @@ app.include_router(incident_photos_router)
 app.include_router(districts_router)
 app.include_router(incidents_router)
 app.include_router(volunteers_router)
+app.include_router(admin_auth_router)
+app.include_router(admin_volunteers_router)
 
 
 @app.get("/healthz")

@@ -5,13 +5,7 @@ from datetime import UTC, datetime
 from core.db import SessionLocal, close_db
 from core.log_config import setup_logging
 from models import VolunteerStatus
-from services.volunteers import list_volunteers, set_volunteer_status
-
-STATUS_COMMANDS = {
-    "approve": VolunteerStatus.APPROVED,
-    "reject": VolunteerStatus.REJECTED,
-    "suspend": VolunteerStatus.SUSPENDED,
-}
+from services.volunteers import STATUS_ACTIONS, list_volunteers, set_volunteer_status
 
 
 async def show(status: VolunteerStatus | None) -> None:
@@ -29,7 +23,7 @@ async def show(status: VolunteerStatus | None) -> None:
 async def change(volunteer_id: int, status: VolunteerStatus) -> None:
     async with SessionLocal() as session, session.begin():
         volunteer = await set_volunteer_status(
-            session, volunteer_id, status, datetime.now(UTC)
+            session, volunteer_id, status, datetime.now(UTC), actor="cli"
         )
     print(f"#{volunteer.id} {volunteer.full_name} -> {volunteer.status}")
 
@@ -42,7 +36,7 @@ async def main() -> None:
     list_parser.add_argument(
         "--status", choices=[status.value for status in VolunteerStatus]
     )
-    for name in STATUS_COMMANDS:
+    for name in STATUS_ACTIONS:
         commands.add_parser(name).add_argument("volunteer_id", type=int)
 
     args = parser.parse_args()
@@ -50,7 +44,7 @@ async def main() -> None:
         if args.command == "list":
             await show(VolunteerStatus(args.status) if args.status else None)
         else:
-            await change(args.volunteer_id, STATUS_COMMANDS[args.command])
+            await change(args.volunteer_id, STATUS_ACTIONS[args.command])
     finally:
         await close_db()
 

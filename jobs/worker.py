@@ -13,6 +13,7 @@ from jobs.dispatch import handle_dispatch_incident
 from jobs.escalation import handle_escalate_incident
 from jobs.line_events import JOB_LINE_EVENT, handle_line_event
 from jobs.notify import handle_assignment_summary, handle_incident_closed
+from jobs.volunteer_notice import handle_volunteer_status_notice
 from services.assignments import JOB_ASSIGNMENT_SUMMARY, JOB_INCIDENT_CLOSED
 from services.dispatch import JOB_DISPATCH_INCIDENT, JOB_ESCALATE_INCIDENT
 from services.jobs import (
@@ -22,6 +23,7 @@ from services.jobs import (
     fail_job,
     requeue_stale_jobs,
 )
+from services.volunteers import JOB_VOLUNTEER_STATUS_NOTICE
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ HANDLERS: dict[str, JobHandler] = {
     JOB_ESCALATE_INCIDENT: handle_escalate_incident,
     JOB_ASSIGNMENT_SUMMARY: handle_assignment_summary,
     JOB_INCIDENT_CLOSED: handle_incident_closed,
+    JOB_VOLUNTEER_STATUS_NOTICE: handle_volunteer_status_notice,
 }
 
 

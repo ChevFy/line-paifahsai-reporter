@@ -12,6 +12,7 @@ from linebot.v3.messaging import (
     URIAction,
 )
 
+from models import VolunteerStatus
 from services.assignments import AssignmentAction
 from services.dispatch import DispatchReason, DispatchTarget
 from services.notifications import AssignmentSummary
@@ -184,6 +185,26 @@ def build_closure_for_reporter(incident_id: int, district_name: str) -> TextMess
             f"หากพบไฟปะทุอีก แจ้งใหม่ได้ทันที หรือโทร {EMERGENCY_PHONE}"
         )
     )
+
+
+def build_volunteer_status_notice(
+    status: VolunteerStatus, district_name: str
+) -> TextMessage | None:
+    if status == VolunteerStatus.APPROVED:
+        text = (
+            f"แอดมินอนุมัติคุณเป็นจิตอาสาแล้ว คุณจะได้รับแจ้งเหตุไฟป่าใน อ.{district_name}\n"
+            "เมื่อได้รับแจ้ง ถ้าอยู่ใกล้และไปได้ กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ"
+        )
+    elif status == VolunteerStatus.REJECTED:
+        text = "การลงทะเบียนจิตอาสาไม่ผ่านการอนุมัติ หากมีข้อสงสัยกรุณาติดต่อแอดมิน"
+    elif status == VolunteerStatus.SUSPENDED:
+        text = (
+            "บัญชีจิตอาสาของคุณถูกระงับชั่วคราว จะไม่ได้รับแจ้งเหตุจนกว่าแอดมินจะเปิดใหม่ "
+            "หากมีข้อสงสัยกรุณาติดต่อแอดมิน"
+        )
+    else:
+        return None
+    return TextMessage(text=text)
 
 
 def build_closure_for_volunteer(incident_id: int, district_name: str) -> TextMessage:

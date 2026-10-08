@@ -26,6 +26,13 @@ class VolunteerResponse(BaseModel):
     created_at: datetime
 
 
+class VolunteerPage(BaseModel):
+    items: list[VolunteerResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class VolunteerRegistrationResponse(BaseModel):
     volunteer: VolunteerResponse
     created: bool

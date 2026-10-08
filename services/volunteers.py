@@ -7,11 +7,19 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import AlertSeverity, District, LineUser, Volunteer, VolunteerStatus
-from services.admin_alerts import record_admin_alert
+from services.admin_alerts import acknowledge_admin_alert, record_admin_alert
+from services.jobs import enqueue_job
 
 logger = logging.getLogger(__name__)
 
 ALERT_VOLUNTEER_PENDING = "volunteer_pending_approval"
+JOB_VOLUNTEER_STATUS_NOTICE = "volunteer_status_notice"
+
+STATUS_ACTIONS = {
+    "approve": VolunteerStatus.APPROVED,
+    "reject": VolunteerStatus.REJECTED,
+    "suspend": VolunteerStatus.SUSPENDED,
+}
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,13 @@ class VolunteerRegistration:
 class RegistrationResult:
     volunteer: Volunteer
     created: bool
+
+
+@dataclass(frozen=True)
+class VolunteerNotice:
+    line_user_id: str
+    status: VolunteerStatus
+    district_name: str
 
 
 class UnknownDistrictError(Exception):
@@ -109,14 +124,46 @@ async def find_volunteer_by_line_user(
     return (await session.execute(statement)).scalar_one_or_none()
 
 
+def volunteer_filters(
+    status: VolunteerStatus | None,
+    district_code: str | None,
+) -> list[sa.ColumnElement[bool]]:
+    conditions = []
+    if status is not None:
+        conditions.append(Volunteer.status == status)
+    if district_code is not None:
+        conditions.append(Volunteer.district_code == district_code)
+    return conditions
+
+
 async def list_volunteers(
     session: AsyncSession,
     status: VolunteerStatus | None = None,
+    district_code: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[Volunteer]:
-    statement = sa.select(Volunteer).order_by(Volunteer.created_at, Volunteer.id)
-    if status is not None:
-        statement = statement.where(Volunteer.status == status)
+    statement = (
+        sa.select(Volunteer)
+        .where(*volunteer_filters(status, district_code))
+        .order_by(Volunteer.created_at, Volunteer.id)
+        .limit(limit)
+        .offset(offset)
+    )
     return list((await session.execute(statement)).scalars().all())
+
+
+async def count_volunteers(
+    session: AsyncSession,
+    status: VolunteerStatus | None = None,
+    district_code: str | None = None,
+) -> int:
+    statement = (
+        sa.select(sa.func.count())
+        .select_from(Volunteer)
+        .where(*volunteer_filters(status, district_code))
+    )
+    return (await session.execute(statement)).scalar_one()
 
 
 async def set_volunteer_status(
@@ -124,6 +171,7 @@ async def set_volunteer_status(
     volunteer_id: int,
     status: VolunteerStatus,
     now: datetime,
+    actor: str = "unknown",
 ) -> Volunteer:
     volunteer = await session.get(Volunteer, volunteer_id, with_for_update=True)
     if volunteer is None:
@@ -132,18 +180,64 @@ async def set_volunteer_status(
         raise InvalidVolunteerTransitionError("cannot move volunteer back to pending")
 
     previous = volunteer.status
+    if previous == status:
+        logger.info(
+            "volunteer status unchanged: id=%s status=%s actor=%s",
+            volunteer.id,
+            status,
+            actor,
+        )
+        return volunteer
+
     volunteer.status = status
     if status == VolunteerStatus.APPROVED and volunteer.approved_at is None:
         volunteer.approved_at = now
     await session.flush()
 
+    if previous == VolunteerStatus.PENDING:
+        await acknowledge_admin_alert(
+            session, f"{ALERT_VOLUNTEER_PENDING}:{volunteer.id}", actor, now
+        )
+    await enqueue_job(
+        session,
+        JOB_VOLUNTEER_STATUS_NOTICE,
+        {
+            "volunteer_id": volunteer.id,
+            "status": status.value,
+            "changed_at": now.isoformat(),
+        },
+        idempotency_key=(
+            f"{JOB_VOLUNTEER_STATUS_NOTICE}:{volunteer.id}:{status.value}:{now.isoformat()}"
+        ),
+    )
+
     logger.info(
-        "volunteer status changed: id=%s %s -> %s",
+        "volunteer status changed: id=%s %s -> %s actor=%s",
         volunteer.id,
         previous,
         status,
+        actor,
     )
     return volunteer
+
+
+async def load_volunteer_notice(
+    session: AsyncSession,
+    volunteer_id: int,
+) -> VolunteerNotice | None:
+    statement = (
+        sa.select(Volunteer.line_user_id, Volunteer.status, District.name_th)
+        .join(District, District.code == Volunteer.district_code)
+        .where(Volunteer.id == volunteer_id)
+    )
+    row = (await session.execute(statement)).one_or_none()
+    if row is None:
+        return None
+    return VolunteerNotice(
+        line_user_id=row.line_user_id,
+        status=row.status,
+        district_name=row.name_th,
+    )
 
 
 async def approved_line_user_ids_in_district(

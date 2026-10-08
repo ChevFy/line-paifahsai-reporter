@@ -18,7 +18,10 @@ async def handle_validation_error(
         "invalid request: method=%s path=%s errors=%s",
         request.method,
         request.url.path,
-        error.errors(),
+        [
+            {key: value for key, value in item.items() if key != "input"}
+            for item in error.errors()
+        ],
     )
     detail = {
         "message": VALIDATION_MESSAGE,

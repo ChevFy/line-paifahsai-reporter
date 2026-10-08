@@ -25,6 +25,17 @@ def require_incident_id(payload: dict[str, Any]) -> int:
     return incident_id
 
 
+async def push_message(
+    to: str,
+    message: Message,
+    key_prefix: tuple[object, ...],
+) -> None:
+    await get_line_service().push(to, message, retry_key=retry_key(*key_prefix))
+    logger.info(
+        "push sent: key=%s", ":".join(str(part) for part in key_prefix)
+    )
+
+
 async def multicast_in_chunks(
     recipients: Sequence[str],
     message: Message,

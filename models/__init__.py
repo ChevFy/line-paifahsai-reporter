@@ -1,4 +1,5 @@
 from models.admin_alert import AdminAlert, AlertSeverity
+from models.admin_user import AdminSession, AdminUser
 from models.assignment import Assignment, AssignmentStatus
 from models.base import Base
 from models.daily_report import DailyReport
@@ -14,6 +15,8 @@ __all__ = [
     "ACTIVE_INCIDENT_STATUSES",
     "ActorType",
     "AdminAlert",
+    "AdminSession",
+    "AdminUser",
     "AlertSeverity",
     "Assignment",
     "AssignmentStatus",

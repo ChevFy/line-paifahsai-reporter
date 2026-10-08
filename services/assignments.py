@@ -163,6 +163,7 @@ async def accept_incident(
                     "volunteer_id": volunteer.id,
                     "outcome": outcome.value,
                 },
+                created_at=now,
             )
         )
         await enqueue_assignment_summary(session, incident_id, now)
@@ -269,6 +270,7 @@ async def update_assignment(
                 "from": previous.value,
                 "to": target.value,
             },
+            created_at=now,
         )
     )
     await session.flush()
@@ -278,17 +280,20 @@ async def update_assignment(
     )
     incident_closed = False
     all_withdrawn = False
-    if action != AssignmentAction.ARRIVED and active_count == 0:
-        done_count = await count_assignments(
-            session, incident_id, (AssignmentStatus.DONE,)
+    if action == AssignmentAction.DONE:
+        await close_incident(
+            session,
+            incident,
+            line_user_id,
+            now,
+            closed_by_volunteer_id=volunteer.id,
+            others_on_site=active_count,
         )
-        if done_count > 0:
-            await close_incident(session, incident, line_user_id, now)
-            incident_closed = True
-        else:
-            await reopen_after_all_withdrawn(session, incident, line_user_id, now)
-            all_withdrawn = True
-    if action == AssignmentAction.WITHDRAW and not all_withdrawn:
+        incident_closed = True
+    elif action == AssignmentAction.WITHDRAW and active_count == 0:
+        await reopen_after_all_withdrawn(session, incident, line_user_id, now)
+        all_withdrawn = True
+    elif action == AssignmentAction.WITHDRAW:
         await enqueue_assignment_summary(session, incident_id, now)
 
     logger.info(
@@ -336,6 +341,8 @@ async def close_incident(
     incident: Incident,
     line_user_id: str,
     now: datetime,
+    closed_by_volunteer_id: int,
+    others_on_site: int,
 ) -> None:
     incident.status = IncidentStatus.CLOSED
     incident.closed_at = now
@@ -345,17 +352,32 @@ async def close_incident(
             event_type=EVENT_INCIDENT_CLOSED,
             actor_type=ActorType.VOLUNTEER,
             actor_id=line_user_id,
-            payload={"reason": "all_assignments_done"},
+            payload={
+                "reason": "volunteer_marked_done",
+                "volunteer_id": closed_by_volunteer_id,
+                "others_on_site": others_on_site,
+            },
+            created_at=now,
         )
     )
     closed_key = now.isoformat()
     await enqueue_job(
         session,
         job_type=JOB_INCIDENT_CLOSED,
-        payload={"incident_id": incident.id, "closed_at": closed_key},
+        payload={
+            "incident_id": incident.id,
+            "closed_at": closed_key,
+            "closed_by_volunteer_id": closed_by_volunteer_id,
+        },
         idempotency_key=f"{JOB_INCIDENT_CLOSED}:{incident.id}:{closed_key}",
     )
-    logger.info("incident closed: incident_id=%s", incident.id)
+    log = logger.warning if others_on_site else logger.info
+    log(
+        "incident closed: incident_id=%s closed_by_volunteer_id=%s others_on_site=%s",
+        incident.id,
+        closed_by_volunteer_id,
+        others_on_site,
+    )
 
 
 async def reopen_after_all_withdrawn(
@@ -370,6 +392,7 @@ async def reopen_after_all_withdrawn(
         event_type=EVENT_ALL_WITHDRAWN,
         actor_type=ActorType.VOLUNTEER,
         actor_id=line_user_id,
+        created_at=now,
     )
     session.add(event)
     await session.flush()
@@ -398,14 +421,25 @@ async def reopen_after_all_withdrawn(
     logger.error("all volunteers withdrew: incident_id=%s", incident.id)
 
 
+def summary_window_of(now: datetime) -> int:
+    return int(now.timestamp() // SUMMARY_WINDOW.total_seconds())
+
+
+def summary_window_bounds(window: int) -> tuple[datetime, datetime]:
+    seconds = SUMMARY_WINDOW.total_seconds()
+    return (
+        datetime.fromtimestamp(window * seconds, UTC),
+        datetime.fromtimestamp((window + 1) * seconds, UTC),
+    )
+
+
 async def enqueue_assignment_summary(
     session: AsyncSession,
     incident_id: int,
     now: datetime,
 ) -> bool:
-    window_seconds = SUMMARY_WINDOW.total_seconds()
-    window = int(now.timestamp() // window_seconds)
-    run_at = datetime.fromtimestamp((window + 1) * window_seconds, UTC)
+    window = summary_window_of(now)
+    _, run_at = summary_window_bounds(window)
     return await enqueue_job(
         session,
         job_type=JOB_ASSIGNMENT_SUMMARY,

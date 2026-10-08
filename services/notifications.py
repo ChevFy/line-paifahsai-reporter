@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,12 +8,21 @@ from models import (
     Assignment,
     District,
     Incident,
+    IncidentEvent,
     IncidentStatus,
     Report,
     Volunteer,
 )
-from services.assignments import ACTIVE_ASSIGNMENT_STATUSES
+from services.assignments import (
+    ACTION_EVENTS,
+    ACTIVE_ASSIGNMENT_STATUSES,
+    EVENT_VOLUNTEER_ACCEPTED,
+    AssignmentAction,
+    summary_window_bounds,
+)
 from services.volunteers import approved_line_user_ids_in_district
+
+EVENT_VOLUNTEER_WITHDRAWN = ACTION_EVENTS[AssignmentAction.WITHDRAW]
 
 
 @dataclass(frozen=True)
@@ -22,6 +31,8 @@ class AssignmentSummary:
     district_name: str
     volunteer_names: list[str]
     recipients: list[str]
+    joined_names: list[str] = field(default_factory=list)
+    withdrawn_names: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -30,6 +41,7 @@ class ClosureNotice:
     district_name: str
     reporter_ids: list[str]
     volunteer_ids: list[str]
+    closed_by_name: str | None = None
 
 
 async def load_incident_district(
@@ -47,9 +59,44 @@ async def load_incident_district(
     return row.status, row.district_code, row.name_th
 
 
+async def load_window_changes(
+    session: AsyncSession,
+    incident_id: int,
+    window: int,
+) -> tuple[list[str], list[str]]:
+    start, end = summary_window_bounds(window)
+    rows = (
+        await session.execute(
+            sa.select(IncidentEvent.event_type, Volunteer.full_name)
+            .join(
+                Volunteer,
+                Volunteer.id == IncidentEvent.payload["volunteer_id"].as_integer(),
+            )
+            .where(
+                IncidentEvent.incident_id == incident_id,
+                IncidentEvent.event_type.in_(
+                    (EVENT_VOLUNTEER_ACCEPTED, EVENT_VOLUNTEER_WITHDRAWN)
+                ),
+                IncidentEvent.created_at >= start,
+                IncidentEvent.created_at < end,
+            )
+            .order_by(IncidentEvent.id)
+        )
+    ).all()
+
+    joined: list[str] = []
+    withdrawn: list[str] = []
+    for row in rows:
+        names = joined if row.event_type == EVENT_VOLUNTEER_ACCEPTED else withdrawn
+        if row.full_name not in names:
+            names.append(row.full_name)
+    return joined, withdrawn
+
+
 async def load_assignment_summary(
     session: AsyncSession,
     incident_id: int,
+    window: int | None = None,
 ) -> AssignmentSummary | None:
     status, district_code, district_name = await load_incident_district(
         session, incident_id
@@ -74,19 +121,29 @@ async def load_assignment_summary(
         if row.line_user_id not in recipients:
             recipients.append(row.line_user_id)
 
+    joined, withdrawn = (
+        await load_window_changes(session, incident_id, window)
+        if window is not None
+        else ([], [])
+    )
     return AssignmentSummary(
         incident_id=incident_id,
         district_name=district_name,
         volunteer_names=[row.full_name for row in assigned],
         recipients=recipients,
+        joined_names=joined,
+        withdrawn_names=withdrawn,
     )
 
 
 async def load_closure_notice(
     session: AsyncSession,
     incident_id: int,
+    closed_by_volunteer_id: int | None = None,
 ) -> ClosureNotice:
-    _, _, district_name = await load_incident_district(session, incident_id)
+    _, district_code, district_name = await load_incident_district(
+        session, incident_id
+    )
 
     reporter_ids = (
         await session.execute(
@@ -104,10 +161,26 @@ async def load_closure_notice(
             .order_by(Assignment.id)
         )
     ).scalars().all()
+    recipients = list(volunteer_ids)
+    for line_user_id in await approved_line_user_ids_in_district(
+        session, district_code
+    ):
+        if line_user_id not in recipients:
+            recipients.append(line_user_id)
 
+    closed_by_name = (
+        await session.scalar(
+            sa.select(Volunteer.full_name).where(
+                Volunteer.id == closed_by_volunteer_id
+            )
+        )
+        if closed_by_volunteer_id is not None
+        else None
+    )
     return ClosureNotice(
         incident_id=incident_id,
         district_name=district_name,
         reporter_ids=list(reporter_ids),
-        volunteer_ids=list(volunteer_ids),
+        volunteer_ids=recipients,
+        closed_by_name=closed_by_name,
     )

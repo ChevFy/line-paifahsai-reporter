@@ -10,6 +10,8 @@ from core.db import SessionLocal
 from line.line_client import get_line_service
 from line.line_flex import (
     ACTION_ACCEPT,
+    DONE_LABEL,
+    ON_SITE_ACTIONS,
     build_assignment_controls,
     parse_postback_data,
 )
@@ -75,7 +77,8 @@ def accept_reply_text(result: AcceptResult) -> str:
             return (
                 f"รับ{incident}แล้ว ขอบคุณครับ "
                 f"ตอนนี้มีจิตอาสารับงานนี้ {result.active_volunteer_count} คน\n"
-                "ถึงหน้างานกด \"ถึงแล้ว\" ดับเสร็จกด \"เสร็จของฉัน\"\n"
+                f"ถึงหน้างานกด \"ถึงแล้ว\" ดับเสร็จกด \"{DONE_LABEL}\" (ปิดเหตุทันที)\n"
+                "ไปไม่ได้แล้วกด \"ถอนตัว\"\n"
                 "เดินทางปลอดภัย หากไฟลุกลามเกินกำลังโทร 1362"
             )
         case AcceptOutcome.ALREADY_ACCEPTED:
@@ -99,6 +102,16 @@ def accept_reply(result: AcceptResult) -> Message:
         AcceptOutcome.ALREADY_ACCEPTED,
     ):
         return build_assignment_controls(result.incident_id, text)
+    return TextMessage(text=text)
+
+
+def update_reply(result: UpdateResult) -> Message:
+    text = update_reply_text(result)
+    if (
+        result.outcome in (UpdateOutcome.UPDATED, UpdateOutcome.UNCHANGED)
+        and result.assignment_status == AssignmentStatus.ARRIVED
+    ):
+        return build_assignment_controls(result.incident_id, text, ON_SITE_ACTIONS)
     return TextMessage(text=text)
 
 
@@ -135,24 +148,30 @@ def updated_text(result: UpdateResult, incident: str) -> str:
         case AssignmentAction.ARRIVED:
             return (
                 f"บันทึกว่าถึงหน้างาน{incident}แล้ว ระวังความปลอดภัย\n"
-                "ดับเสร็จกด \"เสร็จของฉัน\" หากไฟลุกลามเกินกำลังโทร 1362"
+                f"ดับเสร็จกด \"{DONE_LABEL}\" (ปิดเหตุทันที) "
+                "หากไฟลุกลามเกินกำลังโทร 1362"
             )
-        case AssignmentAction.DONE if result.incident_closed:
-            return f"บันทึกแล้ว ทุกคนรายงานเสร็จครบ ปิด{incident}เรียบร้อย ขอบคุณมากครับ"
         case AssignmentAction.DONE:
+            on_site = (
+                f"\nยังมีจิตอาสาที่รับงานนี้อีก {others} คน ระบบแจ้งให้ทราบแล้ว"
+                if others
+                else ""
+            )
             return (
-                f"บันทึกว่าคุณเสร็จแล้ว ยังมีจิตอาสาอยู่ที่{incident}อีก {others} คน "
-                "เหตุจะปิดเมื่อทุกคนกดเสร็จ"
+                f"บันทึกแล้ว ปิด{incident}เรียบร้อย "
+                "แจ้งผู้แจ้งและจิตอาสาในอำเภอแล้ว ขอบคุณมากครับ"
+                f"{on_site}\nถ้าไฟปะทุอีก โทร 1362 ทันที"
             )
         case AssignmentAction.WITHDRAW if result.all_withdrawn:
             return (
                 f"ถอนตัวจาก{incident}แล้ว ตอนนี้ไม่มีใครรับงานนี้ "
                 "ระบบส่งหาจิตอาสาคนอื่นและแจ้งแอดมินแล้ว"
             )
-        case AssignmentAction.WITHDRAW if result.incident_closed:
-            return f"ถอนตัวจาก{incident}แล้ว คนที่เหลือรายงานเสร็จครบ เหตุปิดแล้ว"
         case AssignmentAction.WITHDRAW:
-            return f"ถอนตัวจาก{incident}แล้ว ยังมีจิตอาสารับงานอีก {others} คน"
+            return (
+                f"ถอนตัวจาก{incident}แล้ว ยังมีจิตอาสารับงานอีก {others} คน\n"
+                "ถ้าจะกลับไปช่วย กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ"
+            )
 
 
 async def handle_postback(event: PostbackEvent) -> None:
@@ -180,7 +199,7 @@ async def handle_postback(event: PostbackEvent) -> None:
         updated = await update_assignment(
             session, user_id, incident_id, AssignmentAction(action), now
         )
-    await respond(event, TextMessage(text=update_reply_text(updated)))
+    await respond(event, update_reply(updated))
 
 
 async def respond(event: MessageEvent | PostbackEvent, message: Message) -> None:

@@ -88,7 +88,7 @@ async def incident_photo_page(
 
     query = escape(link_query(settings.PHOTO_LINK_SECRET, incident_id, expires))
     figures = "".join(
-        f'<figure><img src="/incidents/{incident_id}/photos/{photo.report_id}?{query}" '
+        f'<figure><img src="photos/{photo.report_id}?{query}" '
         f'alt="รูปจากผู้แจ้ง" loading="lazy">'
         f"<figcaption>แจ้งเมื่อ "
         f"{photo.created_at.astimezone(BANGKOK):%d/%m %H:%M} น.</figcaption></figure>"

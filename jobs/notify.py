@@ -24,7 +24,11 @@ async def handle_assignment_summary(
 
     async with sessionmaker() as session:
         try:
-            summary = await load_assignment_summary(session, incident_id)
+            summary = await load_assignment_summary(
+                session,
+                incident_id,
+                window if isinstance(window, int) else None,
+            )
         except LookupError as error:
             raise PermanentJobError(str(error)) from error
 
@@ -41,9 +45,12 @@ async def handle_assignment_summary(
         key_prefix=("summary", incident_id, window),
     )
     logger.info(
-        "assignment summary sent: incident_id=%s volunteers=%s recipients=%s",
+        "assignment summary sent: incident_id=%s volunteers=%s joined=%s "
+        "withdrawn=%s recipients=%s",
         incident_id,
         len(summary.volunteer_names),
+        len(summary.joined_names),
+        len(summary.withdrawn_names),
         len(summary.recipients),
     )
 
@@ -54,10 +61,15 @@ async def handle_incident_closed(
 ) -> None:
     incident_id = require_incident_id(payload)
     closed_at = payload.get("closed_at")
+    closed_by = payload.get("closed_by_volunteer_id")
 
     async with sessionmaker() as session:
         try:
-            notice = await load_closure_notice(session, incident_id)
+            notice = await load_closure_notice(
+                session,
+                incident_id,
+                closed_by if isinstance(closed_by, int) else None,
+            )
         except LookupError as error:
             raise PermanentJobError(str(error)) from error
 
@@ -68,7 +80,9 @@ async def handle_incident_closed(
     )
     await multicast_in_chunks(
         notice.volunteer_ids,
-        build_closure_for_volunteer(incident_id, notice.district_name),
+        build_closure_for_volunteer(
+            incident_id, notice.district_name, notice.closed_by_name
+        ),
         key_prefix=("closed", incident_id, closed_at, "volunteers"),
     )
     logger.info(

@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -7,16 +8,27 @@ from datetime import timedelta
 
 import pytest
 import sqlalchemy as sa
+from conftest import MAE_TAENG, TEST_ENV, requires_postgis
 from fastapi.testclient import TestClient
 from geoalchemy2 import WKTElement
+from test_volunteer_flow import (
+    NOW,
+    FakeLine,
+    accept,
+    add_incident,
+    add_volunteer,
+    alert_types,
+    scalar,
+)
 
-from conftest import TEST_ENV, requires_postgis
 from jobs import common as jobs_common
 from jobs import line_events
 from jobs.notify import handle_assignment_summary, handle_incident_closed
 from line import line_webhook
 from models import (
+    AssignmentStatus,
     Incident,
+    IncidentEvent,
     IncidentStatus,
     Job,
     LineUser,
@@ -25,10 +37,14 @@ from models import (
 )
 from services.assignments import (
     ALERT_ALL_WITHDRAWN,
+    EVENT_INCIDENT_CLOSED,
     JOB_ASSIGNMENT_SUMMARY,
     JOB_INCIDENT_CLOSED,
+    SUMMARY_WINDOW,
     AssignmentAction,
     UpdateOutcome,
+    accept_incident,
+    summary_window_of,
     update_assignment,
 )
 from services.dispatch import (
@@ -41,17 +57,9 @@ from services.escalation import (
     EscalationOutcome,
     escalate_if_unaccepted,
 )
+from services.notifications import load_assignment_summary
 from services.ops_date import ops_date_for
 from services.volunteers import set_volunteer_status
-from test_volunteer_flow import (
-    NOW,
-    FakeLine,
-    accept,
-    add_incident,
-    add_volunteer,
-    alert_types,
-    scalar,
-)
 
 pytestmark = [pytest.mark.anyio, requires_postgis]
 
@@ -102,8 +110,8 @@ async def test_single_volunteer_arrive_then_done_closes_incident(sessionmaker):
     assert [job.payload["incident_id"] for job in closed_jobs] == [incident_id]
 
 
-async def test_first_done_does_not_close_while_others_on_site(sessionmaker):
-    await add_volunteer(sessionmaker, "UV1")
+async def test_first_done_closes_incident_even_with_others_on_site(sessionmaker):
+    first_id = await add_volunteer(sessionmaker, "UV1")
     await add_volunteer(sessionmaker, "UV2")
     incident_id = await add_incident(sessionmaker)
     await accept(sessionmaker, "UV1", incident_id)
@@ -111,28 +119,55 @@ async def test_first_done_does_not_close_while_others_on_site(sessionmaker):
 
     first = await update(sessionmaker, "UV1", incident_id, DONE)
 
-    assert first.incident_closed is False
+    assert first.incident_closed is True
     assert first.active_volunteer_count == 1
-    assert await incident_status(sessionmaker, incident_id) == IncidentStatus.IN_PROGRESS
+    assert await incident_status(sessionmaker, incident_id) == IncidentStatus.CLOSED
+
+    async with sessionmaker() as session:
+        event = (
+            await session.execute(
+                sa.select(IncidentEvent).where(
+                    IncidentEvent.incident_id == incident_id,
+                    IncidentEvent.event_type == EVENT_INCIDENT_CLOSED,
+                )
+            )
+        ).scalar_one()
+    assert event.payload["volunteer_id"] == first_id
+    assert event.payload["others_on_site"] == 1
+
+    closed_jobs = await jobs_of(sessionmaker, JOB_INCIDENT_CLOSED)
+    assert [job.payload["closed_by_volunteer_id"] for job in closed_jobs] == [first_id]
+
+
+async def test_other_volunteer_done_after_close_is_told_closed(sessionmaker):
+    await add_volunteer(sessionmaker, "UV1")
+    await add_volunteer(sessionmaker, "UV2")
+    incident_id = await add_incident(sessionmaker)
+    await accept(sessionmaker, "UV1", incident_id)
+    await accept(sessionmaker, "UV2", incident_id)
+    await update(sessionmaker, "UV1", incident_id, DONE)
 
     second = await update(sessionmaker, "UV2", incident_id, DONE)
 
-    assert second.incident_closed is True
-    assert await incident_status(sessionmaker, incident_id) == IncidentStatus.CLOSED
+    assert second.outcome == UpdateOutcome.INCIDENT_CLOSED
+    assert len(await jobs_of(sessionmaker, JOB_INCIDENT_CLOSED)) == 1
 
 
-async def test_done_plus_withdraw_closes_incident(sessionmaker):
+async def test_concurrent_done_closes_once(sessionmaker):
     await add_volunteer(sessionmaker, "UV1")
     await add_volunteer(sessionmaker, "UV2")
     incident_id = await add_incident(sessionmaker)
     await accept(sessionmaker, "UV1", incident_id)
     await accept(sessionmaker, "UV2", incident_id)
 
-    await update(sessionmaker, "UV1", incident_id, DONE)
-    result = await update(sessionmaker, "UV2", incident_id, WITHDRAW)
+    results = await asyncio.gather(
+        update(sessionmaker, "UV1", incident_id, DONE),
+        update(sessionmaker, "UV2", incident_id, DONE),
+    )
 
-    assert result.incident_closed is True
-    assert await incident_status(sessionmaker, incident_id) == IncidentStatus.CLOSED
+    outcomes = sorted(result.outcome for result in results)
+    assert outcomes == sorted([UpdateOutcome.UPDATED, UpdateOutcome.INCIDENT_CLOSED])
+    assert len(await jobs_of(sessionmaker, JOB_INCIDENT_CLOSED)) == 1
 
 
 async def test_everyone_withdraws_reopens_redispatches_and_alerts(sessionmaker):
@@ -192,26 +227,37 @@ async def test_accepts_in_same_window_are_batched_into_one_summary(sessionmaker)
     assert summaries[0].run_at > NOW
 
 
-async def test_done_twice_is_unchanged(sessionmaker):
+async def test_done_twice_is_told_closed(sessionmaker):
     await add_volunteer(sessionmaker, "UV1")
-    await add_volunteer(sessionmaker, "UV2")
     incident_id = await add_incident(sessionmaker)
     await accept(sessionmaker, "UV1", incident_id)
-    await accept(sessionmaker, "UV2", incident_id)
 
     await update(sessionmaker, "UV1", incident_id, DONE)
     again = await update(sessionmaker, "UV1", incident_id, DONE)
 
+    assert again.outcome == UpdateOutcome.INCIDENT_CLOSED
+    assert len(await jobs_of(sessionmaker, JOB_INCIDENT_CLOSED)) == 1
+
+
+async def test_arrived_twice_is_unchanged(sessionmaker):
+    await add_volunteer(sessionmaker, "UV1")
+    incident_id = await add_incident(sessionmaker)
+    await accept(sessionmaker, "UV1", incident_id)
+    await update(sessionmaker, "UV1", incident_id, ARRIVED)
+
+    again = await update(sessionmaker, "UV1", incident_id, ARRIVED)
+
     assert again.outcome == UpdateOutcome.UNCHANGED
+    assert again.assignment_status == AssignmentStatus.ARRIVED
 
 
-async def test_arrived_after_done_is_invalid(sessionmaker):
+async def test_arrived_after_withdraw_is_invalid(sessionmaker):
     await add_volunteer(sessionmaker, "UV1")
     await add_volunteer(sessionmaker, "UV2")
     incident_id = await add_incident(sessionmaker)
     await accept(sessionmaker, "UV1", incident_id)
     await accept(sessionmaker, "UV2", incident_id)
-    await update(sessionmaker, "UV1", incident_id, DONE)
+    await update(sessionmaker, "UV1", incident_id, WITHDRAW)
 
     result = await update(sessionmaker, "UV1", incident_id, ARRIVED)
 
@@ -276,12 +322,52 @@ async def test_summary_job_multicasts_names_to_district(sessionmaker, fake_line)
     await accept(sessionmaker, "UV1", incident_id)
 
     await handle_assignment_summary(
-        {"incident_id": incident_id, "window": 1}, sessionmaker
+        {"incident_id": incident_id, "window": summary_window_of(NOW)}, sessionmaker
     )
 
     assert len(fake_line.calls) == 1
     assert fake_line.calls[0]["to"] == ["UV1", "UV2"]
-    assert "1 คน" in fake_line.calls[0]["message"].text
+    text = fake_line.calls[0]["message"].text
+    assert "➕ ขอไป: จิตอาสา" in text
+    assert "1 คน" in text
+
+
+async def test_summary_names_who_joined_and_withdrew_in_window(
+    sessionmaker, fake_line
+):
+    for user_id in ("UV1", "UV2", "UV3"):
+        await add_volunteer(sessionmaker, user_id)
+    incident_id = await add_incident(sessionmaker)
+    earlier = NOW - SUMMARY_WINDOW
+    async with sessionmaker() as session, session.begin():
+        await accept_incident(session, "UV1", incident_id, earlier)
+    await accept(sessionmaker, "UV2", incident_id)
+    await accept(sessionmaker, "UV3", incident_id)
+    await update(sessionmaker, "UV3", incident_id, WITHDRAW)
+
+    await handle_assignment_summary(
+        {"incident_id": incident_id, "window": summary_window_of(NOW)}, sessionmaker
+    )
+
+    lines = fake_line.calls[0]["message"].text.splitlines()
+    assert lines[1] == "➕ ขอไป: จิตอาสา, จิตอาสา"
+    assert lines[2] == "➖ ถอนตัว: จิตอาสา"
+    assert lines[3] == "ตอนนี้มีจิตอาสารับงาน 2 คน: จิตอาสา, จิตอาสา"
+
+
+async def test_summary_window_excludes_other_windows(sessionmaker):
+    await add_volunteer(sessionmaker, "UV1")
+    incident_id = await add_incident(sessionmaker)
+    async with sessionmaker() as session, session.begin():
+        await accept_incident(session, "UV1", incident_id, NOW - SUMMARY_WINDOW)
+
+    async with sessionmaker() as session:
+        summary = await load_assignment_summary(
+            session, incident_id, summary_window_of(NOW)
+        )
+
+    assert summary.joined_names == []
+    assert len(summary.volunteer_names) == 1
 
 
 async def test_summary_job_skips_closed_incident(sessionmaker, fake_line):
@@ -309,17 +395,20 @@ async def test_closure_job_notifies_reporters_and_volunteers(sessionmaker, fake_
                     client_request_id=uuid.uuid4(),
                 )
             )
+    await add_volunteer(sessionmaker, "UV2")
+    await add_volunteer(sessionmaker, "UV3", district_code=MAE_TAENG)
     await accept(sessionmaker, "UV1", incident_id)
     await update(sessionmaker, "UV1", incident_id, DONE)
+    job = (await jobs_of(sessionmaker, JOB_INCIDENT_CLOSED))[0]
 
-    await handle_incident_closed(
-        {"incident_id": incident_id, "closed_at": NOW.isoformat()}, sessionmaker
-    )
+    await handle_incident_closed(job.payload, sessionmaker)
 
     reporter_call, volunteer_call = fake_line.calls
     assert reporter_call["to"] == ["UR1", "UR2"]
     assert "1362" in reporter_call["message"].text
-    assert volunteer_call["to"] == ["UV1"]
+    assert volunteer_call["to"] == ["UV1", "UV2"]
+    assert "จิตอาสา กด \"เรียบร้อยแล้ว\"" in volunteer_call["message"].text
+    assert "1362" in volunteer_call["message"].text
     assert reporter_call["retry_key"] != volunteer_call["retry_key"]
 
 

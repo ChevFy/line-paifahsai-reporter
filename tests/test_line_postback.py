@@ -249,17 +249,74 @@ async def test_status_buttons_route_to_update(recorder, monkeypatch, data, actio
     assert "#42" in recorder.replies[0]
 
 
-async def test_last_done_reply_says_incident_closed(recorder, monkeypatch):
+async def test_done_reply_says_closed_and_mentions_others(recorder, monkeypatch):
     use_update(
         monkeypatch,
         UpdateResult(
-            UpdateOutcome.UPDATED, 42, AssignmentAction.DONE, incident_closed=True
+            UpdateOutcome.UPDATED,
+            42,
+            AssignmentAction.DONE,
+            active_volunteer_count=2,
+            incident_closed=True,
         ),
     )
 
     await line_handler.handle_event(postback_event("action=done&incident_id=42"))
 
-    assert "ปิด" in recorder.replies[0]
+    assert "ปิดเหตุ #42" in recorder.replies[0]
+    assert "อีก 2 คน" in recorder.replies[0]
+    assert "1362" in recorder.replies[0]
+
+
+@pytest.mark.parametrize("outcome", [UpdateOutcome.UPDATED, UpdateOutcome.UNCHANGED])
+async def test_arrived_reply_shows_done_and_withdraw_buttons(monkeypatch, outcome):
+    sent = []
+
+    async def fake_reply(reply_token, messages):
+        sent.append(messages)
+
+    @asynccontextmanager
+    async def fake_session():
+        yield FakeSession()
+
+    monkeypatch.setattr(line_handler, "reply_message", fake_reply)
+    monkeypatch.setattr(line_handler, "SessionLocal", fake_session)
+    use_update(
+        monkeypatch,
+        UpdateResult(
+            outcome,
+            42,
+            AssignmentAction.ARRIVED,
+            assignment_status=AssignmentStatus.ARRIVED,
+        ),
+    )
+
+    await line_handler.handle_event(postback_event("action=arrived&incident_id=42"))
+
+    footer = sent[0].to_dict()["contents"]["footer"]["contents"]
+    assert [button["action"]["label"] for button in footer] == [
+        "เรียบร้อยแล้ว",
+        "ถอนตัว",
+    ]
+    actions = [parse_postback_data(button["action"]["data"]) for button in footer]
+    assert actions == [("done", 42), ("withdraw", 42)]
+
+
+async def test_withdraw_reply_is_plain_text_with_rejoin_hint(recorder, monkeypatch):
+    use_update(
+        monkeypatch,
+        UpdateResult(
+            UpdateOutcome.UPDATED,
+            42,
+            AssignmentAction.WITHDRAW,
+            assignment_status=AssignmentStatus.WITHDRAWN,
+            active_volunteer_count=1,
+        ),
+    )
+
+    await line_handler.handle_event(postback_event("action=withdraw&incident_id=42"))
+
+    assert "ฉันขอไป" in recorder.replies[0]
 
 
 async def test_all_withdrawn_reply_says_redispatched(recorder, monkeypatch):

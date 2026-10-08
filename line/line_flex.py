@@ -30,11 +30,18 @@ HEADERS = {
     DispatchReason.ESCALATION: "⚠️ ยังไม่มีใครรับ! ไฟป่า #{id}",
     DispatchReason.ALL_WITHDRAWN: "⚠️ ต้องการคนเพิ่ม ไฟป่า #{id}",
 }
-CONTROL_BUTTONS = (
-    (AssignmentAction.ARRIVED, "ถึงแล้ว", "primary"),
-    (AssignmentAction.DONE, "เสร็จของฉัน", "primary"),
-    (AssignmentAction.WITHDRAW, "ถอนตัว", "secondary"),
+CONTROL_BUTTONS = {
+    AssignmentAction.ARRIVED: ("ถึงแล้ว", "primary"),
+    AssignmentAction.DONE: ("เรียบร้อยแล้ว", "primary"),
+    AssignmentAction.WITHDRAW: ("ถอนตัว", "secondary"),
+}
+EN_ROUTE_ACTIONS = (
+    AssignmentAction.ARRIVED,
+    AssignmentAction.DONE,
+    AssignmentAction.WITHDRAW,
 )
+ON_SITE_ACTIONS = (AssignmentAction.DONE, AssignmentAction.WITHDRAW)
+DONE_LABEL = CONTROL_BUTTONS[AssignmentAction.DONE][0]
 
 
 def postback_data(action: str, incident_id: int) -> str:
@@ -130,19 +137,25 @@ def build_incident_alert(target: DispatchTarget, photos_url: str) -> FlexMessage
     )
 
 
-def build_assignment_controls(incident_id: int, text: str) -> FlexMessage:
-    buttons = [
-        FlexButton(
-            style=style,
-            color=FIRE_COLOR if style == "primary" else None,
-            action=PostbackAction(
-                label=label,
-                data=postback_data(action.value, incident_id),
-                display_text=f"{label} เหตุ #{incident_id}",
-            ),
+def build_assignment_controls(
+    incident_id: int,
+    text: str,
+    actions: tuple[AssignmentAction, ...] = EN_ROUTE_ACTIONS,
+) -> FlexMessage:
+    buttons = []
+    for action in actions:
+        label, style = CONTROL_BUTTONS[action]
+        buttons.append(
+            FlexButton(
+                style=style,
+                color=FIRE_COLOR if style == "primary" else None,
+                action=PostbackAction(
+                    label=label,
+                    data=postback_data(action.value, incident_id),
+                    display_text=f"{label} เหตุ #{incident_id}",
+                ),
+            )
         )
-        for action, label, style in CONTROL_BUTTONS
-    ]
     bubble = FlexBubble(
         body=FlexBox(
             layout="vertical",
@@ -158,23 +171,26 @@ def first_name(full_name: str) -> str:
     return parts[0] if parts else UNNAMED_VOLUNTEER
 
 
+def first_names(full_names: list[str]) -> str:
+    return ", ".join(first_name(name) for name in full_names)
+
+
 def build_assignment_summary(summary: AssignmentSummary) -> TextMessage:
     count = len(summary.volunteer_names)
-    head = f"เหตุ #{summary.incident_id} อ.{summary.district_name}"
+    lines = [f"เหตุ #{summary.incident_id} อ.{summary.district_name}"]
+    if summary.joined_names:
+        lines.append(f"➕ ขอไป: {first_names(summary.joined_names)}")
+    if summary.withdrawn_names:
+        lines.append(f"➖ ถอนตัว: {first_names(summary.withdrawn_names)}")
     if count == 0:
-        return TextMessage(
-            text=(
-                f"{head}: ตอนนี้ไม่มีจิตอาสารับงาน\n"
-                "ถ้าอยู่ใกล้และไปได้ กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ"
-            )
+        lines.append("ตอนนี้ไม่มีจิตอาสารับงาน")
+        lines.append("ถ้าอยู่ใกล้และไปได้ กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ")
+    else:
+        lines.append(
+            f"ตอนนี้มีจิตอาสารับงาน {count} คน: {first_names(summary.volunteer_names)}"
         )
-    names = ", ".join(first_name(name) for name in summary.volunteer_names)
-    return TextMessage(
-        text=(
-            f"{head}: มีจิตอาสารับงานแล้ว {count} คน ({names})\n"
-            "ถ้าอยู่ใกล้และไปช่วยได้ กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ"
-        )
-    )
+        lines.append("ถ้าอยู่ใกล้และไปช่วยได้ กด \"ฉันขอไป\" ในข้อความแจ้งเหตุ")
+    return TextMessage(text="\n".join(lines))
 
 
 def build_closure_for_reporter(incident_id: int, district_name: str) -> TextMessage:
@@ -207,10 +223,16 @@ def build_volunteer_status_notice(
     return TextMessage(text=text)
 
 
-def build_closure_for_volunteer(incident_id: int, district_name: str) -> TextMessage:
+def build_closure_for_volunteer(
+    incident_id: int,
+    district_name: str,
+    closed_by_name: str | None = None,
+) -> TextMessage:
+    closer = first_name(closed_by_name) if closed_by_name else UNNAMED_VOLUNTEER
     return TextMessage(
         text=(
             f"ปิดเหตุ #{incident_id} อ.{district_name} แล้ว "
-            "ทุกคนรายงานเสร็จครบ ขอบคุณทุกคนที่ไปช่วยครับ"
+            f"{closer} กด \"{DONE_LABEL}\" ขอบคุณทุกคนที่ไปช่วยครับ\n"
+            f"ถ้ายังอยู่หน้างานแล้วไฟยังไม่ดับ โทร {EMERGENCY_PHONE} ทันที"
         )
     )

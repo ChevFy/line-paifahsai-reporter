@@ -125,8 +125,10 @@ def test_page_lists_photos_with_signed_image_urls(client, monkeypatch):
     assert response.headers["referrer-policy"] == "no-referrer"
     html = response.text
     assert "2 รูป" in html
-    assert f"/incidents/42/photos/10?{query.replace('&', '&amp;')}" in html
-    assert f"/incidents/42/photos/11?{query.replace('&', '&amp;')}" in html
+    escaped = query.replace("&", "&amp;")
+    assert f'src="photos/10?{escaped}"' in html
+    assert f'src="photos/11?{escaped}"' in html
+    assert 'src="/' not in html
 
 
 def test_page_without_photos(client, monkeypatch):

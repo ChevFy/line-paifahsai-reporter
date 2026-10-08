@@ -53,12 +53,14 @@ class LineService:
                 return await operation(*args, **kwargs)
             except Exception as error:
                 if self._already_accepted(error, attempt, caller_retry_key, kwargs):
-                    logger.info(
-                        "LINE API request already accepted earlier: %s attempt=%s "
-                        "caller_retry_key=%s",
+                    log = logger.warning if attempt == 0 else logger.info
+                    log(
+                        "LINE API request already accepted earlier, not resent: %s "
+                        "attempt=%s caller_retry_key=%s retry_key=%s",
                         operation_name,
                         attempt,
                         caller_retry_key,
+                        kwargs.get("x_line_retry_key"),
                     )
                     return None
                 if not self._is_retryable(error) or attempt == self.max_retries - 1:

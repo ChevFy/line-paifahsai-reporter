@@ -44,9 +44,7 @@ async def count_rows() -> dict[str, int]:
 async def reset() -> None:
     async with SessionLocal() as session, session.begin():
         await session.execute(
-            sa.text(
-                f"TRUNCATE {', '.join(RESET_TABLES)} RESTART IDENTITY CASCADE"
-            )
+            sa.text(f"TRUNCATE {', '.join(RESET_TABLES)} CONTINUE IDENTITY CASCADE")
         )
         await session.execute(
             sa.update(LineUser).values(report_count=0, false_report_count=0)
@@ -68,7 +66,8 @@ async def main() -> None:
         description=(
             "Wipe reports, incidents, events, assignments, jobs and admin alerts. "
             "Keeps districts, line_users, volunteers and admin accounts. "
-            "Images in object storage are not deleted."
+            "Images in object storage are not deleted. IDs keep counting up so "
+            "LINE retry keys derived from incident IDs never repeat."
         ),
     )
     parser.add_argument(

@@ -41,6 +41,18 @@ async def test_conflict_on_first_attempt_with_caller_key_means_already_sent():
     assert operation.calls == 1
 
 
+async def test_conflict_on_first_attempt_is_logged_as_warning_with_key(caplog):
+    operation = Operation(ApiException(status=409))
+
+    with caplog.at_level("WARNING"):
+        await service().retry(
+            operation, caller_retry_key=True, x_line_retry_key="stable-key"
+        )
+
+    assert "not resent" in caplog.text
+    assert "stable-key" in caplog.text
+
+
 async def test_conflict_on_first_attempt_with_random_key_raises():
     operation = Operation(ApiException(status=409))
 

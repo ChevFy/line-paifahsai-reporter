@@ -1,0 +1,31 @@
+/* Styles shared by the LIFF app (src/App.css) and the admin dashboard (src/app/app.css) */
+
+.brand-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #f97316, #dc2626);
+}
+
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.status-badge {
+  display: inline-block;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.status-pending,
+.status-in_progress { background: #fffaeb; color: #b54708; }
+.status-approved { background: #ecfdf3; color: #067647; }
+.status-rejected,
+.status-suspended,
+.status-open { background: #fef3f2; color: #b42318; }
